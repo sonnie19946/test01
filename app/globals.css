@@ -1,0 +1,686 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ================================================================
+   奶油莫兰迪主题: shadcn/ui @theme inline 覆盖
+   将 shadcn 语义色变量映射到暖调奶油白 + 莫兰迪蓝高级调色板
+   ================================================================ */
+@theme inline {
+  /* 暖调奶油白设计 Token */
+  --color-canvas-bg: #FBFBF9;
+  --color-card-bg: #FFFFFF;
+  --color-card-header: #F4F1EB;
+  --color-btn-blue: #84A1DF;
+  --color-text-main: #27272A;
+  --color-text-muted: #8C8C8C;
+
+  /* 覆盖 shadcn 语义色为暖调奶油值 */
+  --color-background: var(--color-canvas-bg);
+  --color-foreground: var(--color-text-main);
+  --color-card: var(--color-card-bg);
+  --color-card-foreground: var(--color-text-main);
+  --color-popover: var(--color-card-bg);
+  --color-popover-foreground: var(--color-text-main);
+  --color-primary: var(--color-btn-blue);
+  --color-primary-foreground: #FFFFFF;
+  --color-secondary: #F4F4F5;
+  --color-secondary-foreground: var(--color-text-main);
+  --color-muted: #F4F4F5;
+  --color-muted-foreground: var(--color-text-muted);
+  --color-accent: var(--color-btn-blue);
+  --color-accent-foreground: #FFFFFF;
+  --color-destructive: #DC2626;
+  --color-border: #E4E4E7;
+  --color-input: #F4F4F5;
+  --color-ring: var(--color-btn-blue);
+
+  /* 大圆角系统 */
+  --radius: 0.75rem; /* 12px */
+  --radius-sm: 0.375rem; /* 6px */
+  --radius-md: 0.5rem; /* 8px */
+  --radius-lg: 1rem; /* 16px */
+  --radius-xl: 1.25rem; /* 20px */
+  --radius-2xl: 1.5rem; /* 24px */
+  --radius-3xl: 2rem; /* 32px */
+  --radius-4xl: 2.5rem; /* 40px */
+  --radius-full: 9999px;
+
+  /* 悬浮弥散阴影 */
+  --shadow-float: 0 12px 36px -8px rgba(0, 0, 0, 0.08);
+  --shadow-none: none;
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+
+  /* 字体族注册 */
+  --font-sans: "OPPOSans", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-serif: "OPPOSans", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono", source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
+  --font-heading: "OPPOSans", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-ui: "OPPOSans", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+}
+
+/* ================================================================
+   暖调奶油白 + 莫兰迪蓝高级调色板 — :root
+   ================================================================ */
+:root {
+  /* 基底层 - 暖调奶油白 */
+  --bg-void:        #FBFBF9; /* 极浅的暖米白色，用于大背景 */
+  --bg-primary:     #FFFFFF; /* 主背景 */
+  --bg-secondary:   #F4F4F5; /* 次要背景 */
+  --bg-elevated:    #FAFAFA; /* 抬升背景 */
+  --bg-card:        #FFFFFF; /* 卡片主底色 */
+  --bg-card-hover:  #F5F5F5; /* 卡片悬停 */
+  --bg-surface:     #FDFDFD; /* 表面颜色 */
+  --bg-input:       #FFFFFF; /* 输入框背景 */
+
+  /* 边框层 */
+  --border-invisible: rgba(0, 0, 0, 0.03);
+  --border-subtle:    #E4E4E7; /* 浅灰色边框 */
+  --border-medium:    #D4D4D4; /* 中等灰色边框 */
+  --border-active:    #84A1DF; /* 莫兰迪蓝激活状态 */
+  --border-focus:     #84A1DF; /* 莫兰迪蓝聚焦状态 */
+
+  /* 文字层 */
+  --text-primary:   #27272A; /* 主要文字 */
+  --text-secondary: #8C8C8C; /* 次要文字 */
+  --text-muted:     #A3A3A3; /* 弱化文字 */
+  --text-muted-secondary: #8C8C8C; /* 设计规范中的 muted 颜色 */
+  --text-ghost:     #D4D4D4; /* 幽灵文字 */
+
+  /* 点缀色: 莫兰迪蓝 + 灰金渐变 */
+  --accent-gold:        #84A1DF; /* 莫兰迪蓝作为主点缀色 */
+  --accent-gold-bright: #7290D0; /* 稍深的莫兰迪蓝 */
+  --accent-gold-dim:    rgba(132, 161, 223, 0.12);
+  --accent-gold-ghost:  rgba(132, 161, 223, 0.06);
+
+  /* 语义色 */
+  --accent-danger:      #DC2626;
+  --accent-danger-dim:  rgba(220, 38, 38, 0.12);
+  --accent-success:     #16A34A;
+  --accent-success-dim: rgba(22, 163, 74, 0.12);
+  --accent-info:        #2563EB;
+  --accent-info-dim:    rgba(37, 99, 235, 0.12);
+
+  /* 节点专属高辨识度主题色（保留原色相，调整亮度） */
+  --node-script:    #D92D20;    /* 剧本：红色高亮 */
+  --node-character: #8B5CF6;   /* 角色：深紫 */
+  --node-appearance: #14B8A6;  /* 角色形象：青灰 */
+  --node-scene:     #3B82F6;   /* 场景：深蓝 */
+  --node-prop:      #F97316;   /* 道具：锈橙 */
+  --node-shot:      #10B981;   /* 分镜：荧绿 */
+  --node-image:     #E11D48;   /* 图像：鲜红 */
+  --node-prompt:    #4DAF6E;   /* 提示词：生成绿 */
+
+  /* 节点主题色透明背景（浅色背景） */
+  --node-script-bg:    rgba(217, 45, 32, 0.08);
+  --node-character-bg: rgba(139, 92, 246, 0.08);
+  --node-appearance-bg: rgba(20, 184, 166, 0.08);
+  --node-scene-bg:     rgba(59, 130, 246, 0.08);
+  --node-prop-bg:      rgba(249, 115, 22, 0.08);
+  --node-shot-bg:      rgba(16, 185, 129, 0.08);
+  --node-image-bg:     rgba(225, 29, 72, 0.08);
+  --node-prompt-bg:    rgba(77, 175, 110, 0.08);
+
+  /* 效果层 */
+  --glow-gold:         0 0 24px rgba(132, 161, 223, 0.15); /* 莫兰迪蓝光晕 */
+  --glow-gold-intense: 0 0 40px rgba(132, 161, 223, 0.25);
+  --shadow-card:       0 1px 3px rgba(0, 0, 0, 0.1);
+  --shadow-elevated:   0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-float:      0 12px 36px -8px rgba(0, 0, 0, 0.08); /* 悬浮弥散阴影 */
+  --glass-bg:          rgba(255, 255, 255, 0.88);
+  --glass-blur:        blur(20px);
+
+  /* 动效编排（保留） */
+  --ease-out-expo:    cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out-sine: cubic-bezier(0.37, 0, 0.63, 1);
+  --ease-spring:      cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration-fast:    150ms;
+  --duration-normal:  300ms;
+  --duration-slow:    500ms;
+
+  /* 间距系统（保留） */
+  --space-1: 4px;  --space-2: 8px;   --space-3: 12px;
+  --space-4: 16px; --space-5: 20px;  --space-6: 24px;
+  --space-8: 32px; --space-10: 40px; --space-12: 48px;
+
+  /* 圆角: 大圆角系统 */
+  --radius-sm:   0.375rem; /* 6px */
+  --radius-md:   0.5rem;   /* 8px */
+  --radius-lg:   1rem;     /* 16px */
+  --radius-xl:   1.25rem;  /* 20px */
+  --radius-2xl:  1.5rem;   /* 24px */
+  --radius-full: 9999px;
+
+  /* 节点尺寸 */
+  --node-min-width: 240px;
+  --node-max-width: 360px;
+  --handle-size:    14px;
+  --handle-offset: -7px;
+
+  /* shadcn 语义色变量 (与 @theme inline 保持一致) */
+  --background:          #FBFBF9; /* canvas-bg */
+  --foreground:          #27272A; /* text-main */
+  --card:                #FFFFFF; /* card-bg */
+  --card-foreground:     #27272A; /* text-main */
+  --popover:             #FFFFFF;
+  --popover-foreground:  #27272A;
+  --primary:             #84A1DF; /* btn-blue */
+  --primary-foreground:  #FFFFFF;
+  --secondary:           #F4F4F5;
+  --secondary-foreground: #27272A;
+  --muted:               #F4F4F5;
+  --muted-foreground:    #8C8C8C; /* text-muted */
+  --accent:              #84A1DF;
+  --accent-foreground:   #FFFFFF;
+  --destructive:         #DC2626;
+  --border:              #E4E4E7;
+  --input:               #F4F4F5;
+  --ring:                #84A1DF;
+  --chart-1:             #84A1DF;
+  --chart-2:             #7290D0;
+  --chart-3:             #5A7BC8;
+  --chart-4:             #4F596D; /* 灰金渐变起始色 */
+  --chart-5:             #D0B48F; /* 灰金渐变结束色 */
+  --radius:              0.75rem; /* 12px */
+  --sidebar:             #FFFFFF;
+  --sidebar-foreground:  #27272A;
+  --sidebar-primary:     #84A1DF;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent:      #F4F4F5;
+  --sidebar-accent-foreground: #27272A;
+  --sidebar-border:      #E4E4E7;
+  --sidebar-ring:        #84A1DF;
+}
+
+/* ================================================================
+   全局 Reset
+   ================================================================ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  background-color: var(--bg-void);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+
+
+/* ================================================================
+   React Flow: Dark Cinema 主题覆盖
+   ================================================================ */
+
+/* 画布背景 */
+.react-flow {
+  background-color: var(--bg-void); /* 暖米白色背景 */
+  /* background-image: radial-gradient(var(--border-subtle) 1px, transparent 1px);
+  background-size: 40px 40px; */
+}
+
+/* 默认节点 (Phase 1 测试节点) */
+.react-flow__node-default {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-ui, 'Syne', sans-serif);
+  font-size: 13px;
+  padding: 10px 14px;
+  box-shadow: var(--shadow-card);
+  min-width: var(--node-min-width);
+  transition: border-color var(--duration-fast) var(--ease-out-expo),
+              box-shadow var(--duration-fast) var(--ease-out-expo);
+}
+
+.react-flow__node-default.selected,
+.react-flow__node-default:focus-within {
+  border-color: var(--accent-gold);
+  border-width: 2px;
+  box-shadow: var(--glow-gold), var(--shadow-card);
+  outline: none;
+}
+
+.react-flow__node-default:hover:not(.selected) {
+  border-color: var(--border-active);
+  transform: translateY(-1px);
+}
+
+/* 悬浮式大点击热区手柄 */
+.react-flow__handle {
+  /* 确保宽高是固定的，比如 24px */
+  width: var(--handle-size, 24px) !important;
+  height: var(--handle-size, 24px) !important;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  transition: all var(--duration-fast) var(--ease-out-expo);
+  /* 重置默认定位，由下方 left/right 规则控制 */
+  left: unset;
+  right: unset;
+  /* 消除默认的行高或内边距干扰 */
+  padding: 0 !important;
+  line-height: 1 !important;
+  margin: 0 !important;
+  transform: translateY(-50%) !important;
+  /* 确保手柄位于节点之上 */
+  z-index: 10;
+  /* 强制绝对居中咒语 */
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+/* 视觉圆环（通过 ::after 实现） */
+.react-flow__handle::after {
+  content: '';
+  display: block;
+  width: var(--handle-size); /* 24px */
+  height: var(--handle-size);
+  background: transparent;
+  border: 1.5px solid var(--text-ghost);
+  border-radius: 50%;
+  transition: inherit;
+  position: relative;
+  z-index: 2;
+}
+
+/* 圆环中心的 "+" 图标（极细） */
+.react-flow__handle::before {
+  content: '+';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 10px;
+  color: var(--text-ghost);
+  font-weight: 300;
+  line-height: 1;
+  opacity: 0.7;
+  z-index: 3;
+  pointer-events: none;
+}
+
+/* 如果 "+" 号是用 ::after 伪元素写的，确保伪元素本身不带破坏居中的 margin/padding */
+.react-flow__handle::after,
+.react-flow__handle::before {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* 悬浮效果 */
+.react-flow__handle:hover::after {
+  border-color: var(--accent-gold);
+  box-shadow: var(--glow-gold);
+  transform: scale(1.1);
+}
+
+.react-flow__handle:hover::before {
+  color: var(--accent-gold);
+  opacity: 1;
+}
+
+/* 连接中状态（用户正在拖拽线条） */
+.react-flow__handle-connecting {
+  /* 手柄本身无需变化，但圆环需要高亮 */
+}
+
+.react-flow__handle-connecting::after {
+  border-color: var(--accent-gold-bright);
+  box-shadow: var(--glow-gold-intense);
+  animation: handle-pulse 1.2s ease-in-out infinite;
+}
+
+.react-flow__handle-connecting::before {
+  color: var(--accent-gold-bright);
+  opacity: 1;
+}
+
+/* 左侧输入手柄（Target）悬浮在节点左边 */
+.react-flow__handle.target {
+  left: var(--handle-offset) !important; /* -32px */
+  right: auto !important;
+}
+
+/* 右侧输出手柄（Source）悬浮在节点右边 */
+.react-flow__handle.source {
+  right: var(--handle-offset) !important; /* -32px */
+  left: auto !important;
+}
+
+/* 强制统一全剧组手柄悬浮 - 覆盖 React Flow 内联样式 */
+.react-flow__handle.react-flow__handle-left {
+  left: var(--handle-offset) !important;
+  right: auto !important;
+}
+
+.react-flow__handle.react-flow__handle-right {
+  right: var(--handle-offset) !important;
+  left: auto !important;
+}
+
+/* 连接时的动态感知：所有合法目标手柄放大并呼吸闪烁 */
+.react-flow__handle-valid {
+  /* 放大效果 */
+}
+
+.react-flow__handle-valid::after {
+  transform: scale(1.2);
+  animation: handle-pulse 0.8s ease-in-out infinite;
+  border-color: var(--accent-gold);
+  box-shadow: var(--glow-gold);
+}
+
+/* 手柄呼吸脉冲动画 */
+@keyframes handle-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(132, 161, 223, 0.4);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(132, 161, 223, 0.1);
+    transform: scale(1.1);
+  }
+}
+
+/* 连接线 */
+.react-flow__edge-path {
+  stroke: var(--border-subtle);
+  stroke-width: 1px;
+  transition: stroke var(--duration-fast), stroke-width var(--duration-fast);
+}
+
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke: var(--accent-gold);
+  stroke-width: 2;
+  filter: drop-shadow(0 0 4px rgba(132, 161, 223, 0.4));
+}
+
+.react-flow__edge-interaction {
+  stroke: transparent;
+  stroke-width: 16;
+}
+
+/* 连接中的引导线 */
+.react-flow__connection-path {
+  stroke: var(--accent-gold);
+  stroke-width: 2;
+  stroke-dasharray: 6 3;
+  animation: flow-dash 0.6s linear infinite;
+}
+
+@keyframes flow-dash {
+  to { stroke-dashoffset: -9; }
+}
+
+/* Controls 面板 */
+.react-flow__controls {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-elevated);
+}
+
+.react-flow__controls-button {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  fill: var(--text-secondary);
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--duration-fast);
+}
+
+.react-flow__controls-button:hover {
+  background: var(--accent-gold-ghost);
+  color: var(--accent-gold);
+  fill: var(--accent-gold);
+}
+
+.react-flow__controls-button:last-child {
+  border-bottom: none;
+}
+
+.react-flow__controls-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* MiniMap */
+.react-flow__minimap {
+  background: var(--bg-primary) !important;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.react-flow__minimap-mask {
+  fill: rgba(255, 255, 255, 0.75);
+}
+
+.react-flow__minimap-node {
+  fill: var(--bg-card);
+  stroke: var(--border-subtle);
+  stroke-width: 1;
+}
+
+/* Attribution 隐藏（可选） */
+.react-flow__attribution {
+  display: none;
+}
+
+/* 选框 */
+.react-flow__nodesselection-rect,
+.react-flow__selection {
+  background: rgba(217, 45, 32, 0.1);
+  border: 1px solid #D4AF37;
+  border-radius: var(--radius-sm);
+}
+
+.dark {
+  --background:          oklch(1 0 0);
+  --foreground:          oklch(0.145 0 0);
+  --card:          oklch(1 0 0);
+  --card-foreground:          oklch(0.145 0 0);
+  --popover:          oklch(1 0 0);
+  --popover-foreground:          oklch(0.145 0 0);
+  --primary:          oklch(0.205 0 0);
+  --primary-foreground:          oklch(0.985 0 0);
+  --secondary:          oklch(0.97 0 0);
+  --secondary-foreground:          oklch(0.205 0 0);
+  --muted:          oklch(0.97 0 0);
+  --muted-foreground:          oklch(0.556 0 0);
+  --accent:          oklch(0.97 0 0);
+  --accent-foreground:          oklch(0.205 0 0);
+  --destructive:          oklch(0.577 0.245 27.325);
+  --border:          oklch(0.922 0 0);
+  --input:          oklch(0.922 0 0);
+  --ring:          oklch(0.708 0 0);
+  --chart-1:          oklch(0.87 0 0);
+  --chart-2:          oklch(0.556 0 0);
+  --chart-3:          oklch(0.439 0 0);
+  --chart-4:          oklch(0.371 0 0);
+  --chart-5:          oklch(0.269 0 0);
+  --sidebar:          oklch(0.985 0 0);
+  --sidebar-foreground:          oklch(0.145 0 0);
+  --sidebar-primary:          oklch(0.205 0 0);
+  --sidebar-primary-foreground:          oklch(0.985 0 0);
+  --sidebar-accent:          oklch(0.97 0 0);
+  --sidebar-accent-foreground:          oklch(0.205 0 0);
+  --sidebar-border:          oklch(0.922 0 0);
+  --sidebar-ring:          oklch(0.708 0 0);
+}
+
+/* ================================================================
+   AI 加载状态：金色流光跑马灯边框
+   ================================================================ */
+@keyframes gold-marquee {
+  0% {
+    box-shadow:
+      inset 0 0 0 1px rgba(132, 161, 223, 0.3),
+      0 0 10px rgba(132, 161, 223, 0.1),
+      0 0 20px rgba(132, 161, 223, 0.05);
+    border-color: rgba(132, 161, 223, 0.5);
+  }
+  25% {
+    box-shadow:
+      inset 0 0 0 1px rgba(132, 161, 223, 0.5),
+      0 0 15px rgba(132, 161, 223, 0.3),
+      0 0 30px rgba(132, 161, 223, 0.1);
+    border-color: rgba(132, 161, 223, 0.7);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 0 1px rgba(132, 161, 223, 0.7),
+      0 0 20px rgba(132, 161, 223, 0.5),
+      0 0 40px rgba(132, 161, 223, 0.2);
+    border-color: rgba(132, 161, 223, 0.9);
+  }
+  75% {
+    box-shadow:
+      inset 0 0 0 1px rgba(132, 161, 223, 0.5),
+      0 0 15px rgba(132, 161, 223, 0.3),
+      0 0 30px rgba(132, 161, 223, 0.1);
+    border-color: rgba(132, 161, 223, 0.7);
+  }
+  100% {
+    box-shadow:
+      inset 0 0 0 1px rgba(132, 161, 223, 0.3),
+      0 0 10px rgba(132, 161, 223, 0.1),
+      0 0 20px rgba(132, 161, 223, 0.05);
+    border-color: rgba(132, 161, 223, 0.5);
+  }
+}
+
+/* 为 loading 或 selected 的节点应用流光效果 */
+.react-flow__node[data-loading="true"],
+.react-flow__node[data-selected="true"] {
+  animation: gold-marquee 2s ease-in-out infinite;
+  border-style: solid !important;
+  border-width: 2px !important;
+}
+
+/* 增强选中状态的默认效果 */
+.react-flow__node[data-selected="true"] {
+  border-color: var(--accent-gold) !important;
+  box-shadow: var(--glow-gold-intense), var(--shadow-card) !important;
+}
+
+/* 增强 loading 状态的效果 */
+.react-flow__node[data-loading="true"] {
+  border-color: rgba(132, 161, 223, 0.8) !important;
+}
+
+/* ================================================================
+   极简点阵网格背景
+   ================================================================ */
+.canvas-dot-grid {
+  background-color: #FBFBF9; /* 暖米白色背景 */
+  background-image: radial-gradient(#E4E4E7 1px, transparent 1px); /* 浅灰色网格点 */
+  background-size: 40px 40px;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+/* 字体工具类 */
+.font-ui { font-family: var(--font-ui, 'Syne', sans-serif); }
+.font-display { font-family: var(--font-display, 'Cormorant Garamond', serif); }
+
+/* 彻底重塑 ReactFlow Handle */
+.react-flow__handle.custom-handle {
+  width: 14px !important;
+  height: 14px !important;
+  min-width: 14px !important;
+  min-height: 14px !important;
+  border-radius: 50% !important;
+  background-color: #FBFBF9 !important;
+  border: 2px solid #84A1DF !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  box-shadow: none !important;
+  color: transparent !important; /* 隐藏里面可能残留的文字 */
+}
+
+/* 强杀各种影响视觉的伪元素和占位符 */
+.react-flow__handle.custom-handle::after,
+.react-flow__handle.custom-handle::before,
+.react-flow__handle.custom-handle svg {
+  display: none !important;
+}
+
+/* ================================================================
+   细半透明滚动条（全局）
+   ================================================================ */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 9999px;
+  transition: background 0.2s;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.28);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+}
