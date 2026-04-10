@@ -280,7 +280,7 @@ export default function HomePage() {
       {/* Header */}
       <header style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '0 48px',
+        padding: '0 64px',
         height: '72px',
         background: 'rgba(255,255,255,0.9)',
         backdropFilter: 'blur(12px)',
@@ -289,35 +289,13 @@ export default function HomePage() {
       }}>
         {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          {/* Icon */}
-          <div style={{
-            width: '32px', height: '32px',
-            borderRadius: '8px',
-            background: 'rgba(132,161,223,0.1)',
-            border: '1.5px solid rgba(132,161,223,0.25)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            flexShrink: 0,
+          <span style={{
+            fontSize: '16px', fontWeight: 700,
+            color: '#000000', letterSpacing: '0.04em',
+            fontFamily: 'var(--font-ui, sans-serif)',
           }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#84A1DF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="2" y="3" width="20" height="18" rx="2" />
-              <path d="M8 3v18M16 3v18M2 9h20M2 15h20" />
-            </svg>
-          </div>
-          <div>
-            <div style={{
-              fontSize: '14px', fontWeight: 600,
-              color: '#27272A', lineHeight: 1.2,
-              letterSpacing: '-0.01em',
-            }}>
-              剧本分镜工作台
-            </div>
-            <div style={{
-              fontSize: '10.5px', color: '#A3A3A3',
-              letterSpacing: '0.02em', marginTop: '1px',
-            }}>
-              AI Storyboard Studio
-            </div>
-          </div>
+            SMINDS
+          </span>
         </div>
 
 
