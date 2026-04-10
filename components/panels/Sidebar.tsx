@@ -1,6 +1,7 @@
 'use client'
 
 import { Node } from '@xyflow/react'
+import { getAssetDisplayName } from '@/lib/getAssetDisplayName'
 import { useState } from 'react'
 import PromptConfigModal from '@/components/modals/PromptConfigModal'
 import SettingsModal from '@/components/modals/SettingsModal'
@@ -166,13 +167,19 @@ export default function Sidebar({ nodeGroups, typeLabels, focusNode }: SidebarPr
                             onClick={() => focusNode(node.id)} />
                         )
                       }
-                      return sorted.map((s, i) => (
-                        <SidebarItem
-                          key={`${node.id}-${i}`}
-                          label={`${String(s.num ?? i + 1).padStart(2, '0')}  ${s.title || '未命名分镜'}`}
-                          onClick={() => focusNode(node.id)}
-                        />
-                      ))
+                      return sorted.map((s, i) => {
+                        const rawTitle = s.title || '未命名分镜'
+                        // 去掉 title 中已包含的序号前缀，如 "[01 工业巨兽...]" → "工业巨兽..."
+                        const cleanTitle = rawTitle.replace(/^\[?\d+\s*/, '').replace(/\]$/, '')
+                        const seq = String(s.num ?? i + 1).padStart(2, '0')
+                        return (
+                          <SidebarItem
+                            key={`${node.id}-${i}`}
+                            label={`${seq} ${cleanTitle || '未命名分镜'}`}
+                            onClick={() => focusNode(node.id)}
+                          />
+                        )
+                      })
                     }
 
                     // ── 其余节点：单行 ──
@@ -182,8 +189,10 @@ export default function Sidebar({ nodeGroups, typeLabels, focusNode }: SidebarPr
                         ((nodeGroups['character']?.[0]?.data as Record<string, any>)?.name as string) || ''
                       return protagonist ? `${protagonist}的故事` : '未命名剧本'
                     })()
-                    const name = scriptName ?? String(
-                      d?.characterName || d?.versionName || d?.name || d?.title || d?.label || `未命名 ${label}`
+                    const name = scriptName ?? (
+                      type === 'appearance'
+                        ? getAssetDisplayName('appearance', d)
+                        : String(d?.characterName || d?.versionName || d?.name || d?.title || d?.label || `未命名 ${label}`)
                     )
                     return (
                       <SidebarItem key={node.id} label={name} onClick={() => focusNode(node.id)} />
