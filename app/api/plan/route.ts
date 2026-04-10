@@ -5,27 +5,75 @@ import type OpenAI from 'openai'
 
 const MAX_CONTINUATION_ROUNDS = 3
 
-/** 尝试从截断的 JSON 中抢救已完成的 shots */
-function repairTruncatedJSON(raw: string): any[] | null {
-  // 先尝试直接解析
+/** 尝试从截断的 JSON 中绝地抢救已完成的 shot 对象 */
+function repairTruncatedJSON(raw: string): any[] | { error: string } {
+  // 1. 强力去除所有可能的 markdown 标记
+  let cleaned = raw.trim()
+  if (cleaned.startsWith('```json')) cleaned = cleaned.replace(/^```json\n?/, '')
+  else if (cleaned.startsWith('```')) cleaned = cleaned.replace(/^```\n?/, '')
+  if (cleaned.endsWith('```')) cleaned = cleaned.replace(/\n?```$/, '')
+  cleaned = cleaned.trim()
+
+  // 2. 先尝试直接解析（如果一次性返回完整结果）
   try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed.shots) ? parsed.shots : null
+    const parsed = JSON.parse(cleaned)
+    if (Array.isArray(parsed.shots)) return parsed.shots
   } catch {}
 
-  // 找最后一个完整 shot 对象边界
-  const lastComplete = raw.lastIndexOf('},')
-  const lastSingle = raw.lastIndexOf('}\n')
-  const cutPos = Math.max(lastComplete, lastSingle)
-  if (cutPos <= 0) return null
+  // 3. 栈匹配提取法：无视所有的截断点和缺失的尾部括号，直接扫描并提取所有完整闭合的 JSON 对象
+  const shots: any[] = []
+  const openBraces: number[] = []
+  let inString = false
+  let escape = false
 
-  const repaired = raw.slice(0, cutPos + 1) + ']}'
-  try {
-    const parsed = JSON.parse(repaired)
-    return Array.isArray(parsed.shots) ? parsed.shots : null
-  } catch {
-    return null
+  for (let i = 0; i < cleaned.length; i++) {
+    const char = cleaned[i]
+
+    if (escape) {
+      escape = false
+      continue
+    }
+
+    if (char === '\\') {
+      escape = true
+      continue
+    }
+
+    if (char === '"') {
+      inString = !inString
+      continue
+    }
+
+    if (!inString) {
+      if (char === '{') {
+        openBraces.push(i)
+      } else if (char === '}') {
+        if (openBraces.length > 0) {
+          const start = openBraces.pop()!
+          const objStr = cleaned.substring(start, i + 1)
+          
+          // 初筛：只尝试解析带有镜头核心字段的子串
+          if (objStr.includes('"title"') && objStr.includes('"prompt"')) {
+            try {
+              const parsedObj = JSON.parse(objStr)
+              // 再次确认为有效的镜头对象
+              if (parsedObj.title && typeof parsedObj.title === 'string' && parsedObj.prompt) {
+                shots.push(parsedObj)
+              }
+            } catch (e) {
+              // 局部解析失败，直接忽略
+            }
+          }
+        }
+      }
+    }
   }
+
+  if (shots.length > 0) {
+    return shots
+  }
+
+  return { error: `栈匹配抢救失败，未能提取出任何完整有效的分镜结构。前 100 字符: ${cleaned.slice(0, 100)}` }
 }
 
 export async function POST(req: NextRequest) {
@@ -80,6 +128,7 @@ ${JSON.stringify(appearances, null, 2)}
     let needsContinuation = true
 
     // ── 首轮调用 ──
+    let lastRaw = ''
     const messages: OpenAI.ChatCompletionMessageParam[] = [
       { role: 'system', content: SHOT_PLANNING_SYSTEM_PROMPT },
       { role: 'user', content: userContent },
@@ -98,12 +147,24 @@ ${JSON.stringify(appearances, null, 2)}
       })
 
       const raw = completion.choices[0]?.message?.content ?? '{}'
+      lastRaw = raw
       const finishReason = completion.choices[0]?.finish_reason
       console.log(`[API Plan] 第 ${round} 轮 finish_reason: ${finishReason}, 返回长度: ${raw.length}`)
 
-      const shots = repairTruncatedJSON(raw)
+      const parseResult = repairTruncatedJSON(raw)
+      let shots: any[] = []
 
-      if (shots && shots.length > 0) {
+      if (Array.isArray(parseResult)) {
+        shots = parseResult
+      } else {
+        console.error(`[API Plan] ❌ 第 ${round} 轮 JSON 解析与抢救彻底失败:`, parseResult.error)
+        return NextResponse.json(
+          { error: `由于大模型输出过长导致格式破损，抢救数据失败。具体原因: ${parseResult.error}` },
+          { status: 502 }
+        )
+      }
+
+      if (shots.length > 0) {
         // 续写时编号需要接续
         if (allShots.length > 0) {
           const offset = allShots.length
@@ -117,9 +178,11 @@ ${JSON.stringify(appearances, null, 2)}
         const lastNum = allShots.length
         console.log(`[API Plan] ⚠️ 第 ${round} 轮被截断（已累计 ${lastNum} 个分镜），发起续写...`)
 
-        // 把上一轮的 assistant 回复和续写指令加入对话历史
+        // 注意：我们只把成功清理并闭合抢救过后的 JSON 塞回历史记录，否则纯断裂字符串容易带偏下一轮
+        const safeAssistantContent = JSON.stringify({ shots }, null, 2)
+        
         messages.push(
-          { role: 'assistant', content: raw },
+          { role: 'assistant', content: safeAssistantContent },
           {
             role: 'user',
             content: `你的上一轮输出因 token 限制被截断了。请从第 [${String(lastNum + 1).padStart(2, '0')}] 个分镜继续往下生成，覆盖剧本中尚未处理的剩余部分。仍然严格输出 { "shots": [...] } 格式的 JSON，编号从 ${lastNum + 1} 开始。不要重复已生成的分镜。`
@@ -132,6 +195,7 @@ ${JSON.stringify(appearances, null, 2)}
     }
 
     if (allShots.length === 0) {
+      console.error('[API Plan] ❌ AI 返回内容无法解析为 shots 数组，原始返回（前2000字符）:', lastRaw.slice(0, 2000))
       return NextResponse.json(
         { error: 'AI 未能按格式生成分镜数组' },
         { status: 502 }
