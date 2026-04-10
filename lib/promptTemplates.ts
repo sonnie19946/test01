@@ -23,28 +23,28 @@ const DEFAULT_TEMPLATES: Record<PromptNodeType, PromptTemplate> = {
     constraints:
       '【重要场景约束】：场景必须被纯白底、隔离的干净摄影棚（pure white studio background, strict isolated background）笼罩，人物身后绝对不能出现任何自然风景、建筑或杂物！\n【核心视图约束】：人物必须完全正脸看向镜头（front view, mugshot style），双肩赤裸或仅露出锁骨（bare shoulders, neck and collarbone visible only），没有任何服装的遮挡，以最高清晰度专门展示面部骨相和五官（highly detailed face structure）。',
     suffix:
-      '完美的摄影棚蝴蝶光（butterfly lighting），RAW照片，高细节，电影颗粒感，角色原画设定图 --ar 1:1',
+      '完美的摄影棚蝴蝶光（butterfly lighting），RAW照片，高细节，电影颗粒感，角色原画设定图，1比1比例',
   },
   appearance: {
     prefix:
       '一个史诗般的、详细的全身各角度影棚参考照片（character turnaround sheet, front side back view）。\n场景被纯白底、隔离、干净的影棚背景笼罩。光线是柔和、干净、均匀的影棚光，能够完美呈现所有细节，没有harsh暗影。',
     constraints: '',
     suffix:
-      '原始照片、高细节、所有纹理清晰、电影颗粒感 --ar 16:9',
+      '原始照片、高细节、所有纹理清晰、电影颗粒感，16比9宽幅画面',
   },
   scene: {
     prefix:
       '一个史诗般的、高度详细的影视级环境概念设定图（Cinematic environment concept art）。\n建立镜头（Establishing shot），全景广角视角（Wide-angle perspective）。\n这是一个【绝对无人/无动物的空镜（Empty set, strictly no humans, no animals, no creatures）】，展现纯粹的环境。',
     constraints: '',
     suffix:
-      '高细节环境纹理、Octane Render渲染质感、电影颗粒感 --ar 16:9',
+      '高细节环境纹理、Octane Render渲染质感、电影颗粒感，16比9宽幅画面',
   },
   prop: {
     prefix:
       '一个史诗般的、高度详细的电影级道具设定图（Prop concept art）。\n主体完全孤立在纯白背景上（Isolated on pure white background），使用干净的影棚布光，无杂乱投射影。',
     constraints: '',
     suffix:
-      '原始照片、高细节、所有纹理清晰、电影颗粒感 --ar 16:9',
+      '原始照片、高细节、所有纹理清晰、电影颗粒感，16比9宽幅画面',
   },
 }
 
