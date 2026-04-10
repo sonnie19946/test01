@@ -9,8 +9,8 @@ const fallbackFont = '"OPPOSans", "PingFang SC", "Microsoft YaHei", sans-serif'
 
 
 export const metadata: Metadata = {
-  title: '剧本分镜工作台',
-  description: '剧本可视化工作台 — 从文字到影像',
+  title: 'SMINDS',
+  description: '一个简单的剧本转分镜的工具',
 }
 
 export default function RootLayout({
