@@ -3,6 +3,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useFlowStore } from '@/hooks/useFlowStore'
 import { getAssetDisplayName } from '@/lib/getAssetDisplayName'
 import { getTemplate, sanitizePromptText } from '@/lib/promptTemplates'
+import { toast } from 'sonner'
 import type { ShotItem, AssetRef } from '@/components/nodes/ShotPoolNode'
 
 const TYPE_LBL: Record<string, string> = { character: '角色', appearance: '角色形象', scene: '场景', prop: '道具' }
@@ -445,6 +446,13 @@ export default function ShotItemModal() {
       ...extract(shot.plot || ''), ...extract(shot.action || ''), ...extract(shot.emotion || '')
     ])
     manualRefs.current = (shot.refs || []).filter(r => !textNames.has(r.name))
+
+    // ★ 初始化时立刻把已有 prompt 显示出来，否则 previewPrompt 为空导致复制失效
+    if (shot.prompt) {
+      const cleaned = sanitizePromptText(shot.prompt.trim())
+      setPreviewPrompt(cleaned)
+      apiPromptRef.current = cleaned
+    }
   }, [selectedShotItem?.poolNodeId, selectedShotItem?.shotIndex])
 
   const doSave = useCallback(() => {
@@ -494,8 +502,12 @@ export default function ShotItemModal() {
   useEffect(() => { doSave() }, [title])
 
   const copyPrompt = useCallback(() => {
-    navigator.clipboard.writeText(previewPrompt)
-  }, [previewPrompt])
+    const text = previewPrompt || (shot?.prompt ? sanitizePromptText(shot.prompt.trim()) : '')
+    if (!text) return
+    navigator.clipboard.writeText(text)
+      .then(() => toast.success('提示词已复制'))
+      .catch(() => toast.error('复制失败'))
+  }, [previewPrompt, shot?.prompt])
 
   if (!selectedShotItem || !shot) return null
 
