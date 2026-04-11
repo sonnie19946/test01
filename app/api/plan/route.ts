@@ -1,26 +1,54 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createScriptClient } from '@/lib/openaiClient'
 import { SHOT_PLANNING_SYSTEM_PROMPT, validatePlanInput } from './prompts'
-import type OpenAI from 'openai'
 
-const MAX_CONTINUATION_ROUNDS = 3
+/**
+ * ── 迭代式分镜生成 API ──
+ *
+ * 核心思路：放弃"一口气生成 + 截断抢救"的旧架构，
+ * 改为每轮只请求 5-8 个分镜，并把【完整剧本 + 全部资产 + 已生成分镜历史】
+ * 作为上下文注入，让大模型自行精准定位当前阅读位置，
+ * 直到剧本被完全覆盖。
+ *
+ * 循环终止条件：大模型在输出中返回 is_finished: true
+ */
 
-/** 尝试从截断的 JSON 中绝地抢救已完成的 shot 对象 */
-function repairTruncatedJSON(raw: string): any[] | { error: string } {
-  // 1. 强力去除所有可能的 markdown 标记
+const MAX_ITERATIONS = 60        // 安全阀：防止死循环（60轮 × 8个 = 最多480个分镜）
+const BATCH_SIZE_HINT = '5-8'    // 每轮期望的分镜批次大小
+const STALL_THRESHOLD = 3        // 连续空产出轮次上限
+
+/** 从 AI 返回的 JSON 中提取 new_shots 和 is_finished */
+function parseIterationResponse(raw: string): {
+  new_shots: any[]
+  is_finished: boolean
+  error?: string
+} {
   let cleaned = raw.trim()
+  // 去 markdown 围栏
   if (cleaned.startsWith('```json')) cleaned = cleaned.replace(/^```json\n?/, '')
   else if (cleaned.startsWith('```')) cleaned = cleaned.replace(/^```\n?/, '')
   if (cleaned.endsWith('```')) cleaned = cleaned.replace(/\n?```$/, '')
   cleaned = cleaned.trim()
 
-  // 2. 先尝试直接解析（如果一次性返回完整结果）
+  // 1. 先尝试直接解析
   try {
     const parsed = JSON.parse(cleaned)
-    if (Array.isArray(parsed.shots)) return parsed.shots
+    if (Array.isArray(parsed.new_shots)) {
+      return {
+        new_shots: parsed.new_shots,
+        is_finished: !!parsed.is_finished,
+      }
+    }
+    // 兼容旧格式：如果模型返回的是 { shots: [...] }
+    if (Array.isArray(parsed.shots)) {
+      return {
+        new_shots: parsed.shots,
+        is_finished: !!parsed.is_finished,
+      }
+    }
   } catch {}
 
-  // 3. 栈匹配提取法：无视所有的截断点和缺失的尾部括号，直接扫描并提取所有完整闭合的 JSON 对象
+  // 2. 栈匹配提取法：从截断 JSON 中抢救已完成的 shot 对象
   const shots: any[] = []
   const openBraces: number[] = []
   let inString = false
@@ -28,22 +56,9 @@ function repairTruncatedJSON(raw: string): any[] | { error: string } {
 
   for (let i = 0; i < cleaned.length; i++) {
     const char = cleaned[i]
-
-    if (escape) {
-      escape = false
-      continue
-    }
-
-    if (char === '\\') {
-      escape = true
-      continue
-    }
-
-    if (char === '"') {
-      inString = !inString
-      continue
-    }
-
+    if (escape) { escape = false; continue }
+    if (char === '\\') { escape = true; continue }
+    if (char === '"') { inString = !inString; continue }
     if (!inString) {
       if (char === '{') {
         openBraces.push(i)
@@ -51,18 +66,13 @@ function repairTruncatedJSON(raw: string): any[] | { error: string } {
         if (openBraces.length > 0) {
           const start = openBraces.pop()!
           const objStr = cleaned.substring(start, i + 1)
-          
-          // 初筛：只尝试解析带有镜头核心字段的子串
           if (objStr.includes('"title"') && objStr.includes('"prompt"')) {
             try {
               const parsedObj = JSON.parse(objStr)
-              // 再次确认为有效的镜头对象
               if (parsedObj.title && typeof parsedObj.title === 'string' && parsedObj.prompt) {
                 shots.push(parsedObj)
               }
-            } catch (e) {
-              // 局部解析失败，直接忽略
-            }
+            } catch {}
           }
         }
       }
@@ -70,10 +80,66 @@ function repairTruncatedJSON(raw: string): any[] | { error: string } {
   }
 
   if (shots.length > 0) {
-    return shots
+    // 截断场景不可能 is_finished
+    return { new_shots: shots, is_finished: false }
   }
 
-  return { error: `栈匹配抢救失败，未能提取出任何完整有效的分镜结构。前 100 字符: ${cleaned.slice(0, 100)}` }
+  return {
+    new_shots: [],
+    is_finished: false,
+    error: `无法从 AI 返回中解析出任何有效分镜。前 200 字符: ${cleaned.slice(0, 200)}`,
+  }
+}
+
+/** 构建每轮迭代的用户消息（注入全量上下文） */
+function buildIterationUserMessage(opts: {
+  scriptText: string
+  characters: any[]
+  scenes: any[]
+  props: any[]
+  appearances: any[]
+  eraSetting: string
+  generatedShots: any[]
+  batchSize: string
+}): string {
+  const { scriptText, characters, scenes, props, appearances, eraSetting, generatedShots, batchSize } = opts
+
+  const assetsBlock = `
+【全局时代背景设定】：
+${eraSetting || '未指定（请根据剧本内容自行推断）'}
+
+【角色资产】：
+${JSON.stringify(characters, null, 2)}
+
+【场景资产】：
+${JSON.stringify(scenes, null, 2)}
+
+【道具资产】：
+${JSON.stringify(props, null, 2)}
+
+【角色形象资产】：
+${JSON.stringify(appearances, null, 2)}`
+
+  const scriptBlock = `
+【完整剧本原文（请通读全文并对照已生成分镜历史，精确定位上次停下的位置）】：
+${scriptText}`
+
+  const historyBlock = generatedShots.length > 0
+    ? `
+【已生成分镜历史（共 ${generatedShots.length} 个，请仔细比对剧本原文找到上次结束的精确位置，紧接着往下提取）】：
+${JSON.stringify(generatedShots, null, 2)}`
+    : `
+【已生成分镜历史】：
+尚无。请从剧本的第一句话开始拆解。`
+
+  return `${assetsBlock}
+
+${scriptBlock}
+
+${historyBlock}
+
+请严格按照你的系统指令，紧接上次停下的位置，继续提取接下来的 ${batchSize} 个高密度分镜。
+如果剧本已经被完全覆盖到最后一行，请将 is_finished 设为 true。`
 }
 
 export async function POST(req: NextRequest) {
@@ -87,31 +153,8 @@ export async function POST(req: NextRequest) {
 
   const { scriptText, characters, scenes, props, appearances, eraSetting } = body
 
-  // 2. 构建用户提示词
-  const userContent = `
-【全局时代背景设定】：
-${eraSetting || '未指定（请根据剧本内容自行推断）'}
-
-【待拆解剧本（请根据叙事节奏、动作细节与情绪转折进行高密度拆解，通常1句旁白对应1-2个关键画面切片）】：
-${scriptText}
-
-【角色资产】：
-${JSON.stringify(characters, null, 2)}
-
-【场景资产】：
-${JSON.stringify(scenes, null, 2)}
-
-【道具资产】：
-${JSON.stringify(props, null, 2)}
-
-【角色形象资产】：
-${JSON.stringify(appearances, null, 2)}
-
-请根据以上时代背景设定与资产，进行高密度分镜拆解，严格输出 shots 数组。所有分镜的视觉描述与生图提示词必须统一反映时代背景设定中的建筑风格、服装材质、光影氛围和道具质感。
-`
-
   try {
-    console.log('[API Plan] 开始分镜推演，剧本长度:', scriptText.length, '字符')
+    console.log('[API Plan] 🚀 开始迭代式分镜生成，剧本长度:', scriptText.length, '字符')
 
     const scriptConfig = createScriptClient(req)
     if (!scriptConfig) {
@@ -124,89 +167,106 @@ ${JSON.stringify(appearances, null, 2)}
     console.log('[API Plan] 使用模型:', MODEL)
 
     const allShots: any[] = []
-    let round = 0
-    let needsContinuation = true
+    let iteration = 0
+    let stallCount = 0   // 连续空产出计数器
 
-    // ── 首轮调用 ──
-    let lastRaw = ''
-    const messages: OpenAI.ChatCompletionMessageParam[] = [
-      { role: 'system', content: SHOT_PLANNING_SYSTEM_PROMPT },
-      { role: 'user', content: userContent },
-    ]
+    // ── 迭代生成主循环 ──
+    while (iteration < MAX_ITERATIONS) {
+      iteration++
+      console.log(`[API Plan] ─── 第 ${iteration} 轮迭代（已累计 ${allShots.length} 个分镜）───`)
 
-    while (needsContinuation && round <= MAX_CONTINUATION_ROUNDS) {
-      round++
-      console.log(`[API Plan] 第 ${round} 轮调用...`)
+      const userMessage = buildIterationUserMessage({
+        scriptText,
+        characters,
+        scenes,
+        props,
+        appearances,
+        eraSetting,
+        generatedShots: allShots,
+        batchSize: BATCH_SIZE_HINT,
+      })
 
       const completion = await client.chat.completions.create({
         model: MODEL,
         response_format: { type: 'json_object' },
-        messages,
+        messages: [
+          { role: 'system', content: SHOT_PLANNING_SYSTEM_PROMPT },
+          { role: 'user', content: userMessage },
+        ],
         temperature: 0.2,
         max_tokens: 8192,
       })
 
       const raw = completion.choices[0]?.message?.content ?? '{}'
-      lastRaw = raw
       const finishReason = completion.choices[0]?.finish_reason
-      console.log(`[API Plan] 第 ${round} 轮 finish_reason: ${finishReason}, 返回长度: ${raw.length}`)
+      console.log(`[API Plan] 第 ${iteration} 轮 finish_reason: ${finishReason}, 返回长度: ${raw.length}`)
 
-      const parseResult = repairTruncatedJSON(raw)
-      let shots: any[] = []
+      const result = parseIterationResponse(raw)
 
-      if (Array.isArray(parseResult)) {
-        shots = parseResult
-      } else {
-        console.error(`[API Plan] ❌ 第 ${round} 轮 JSON 解析与抢救彻底失败:`, parseResult.error)
-        return NextResponse.json(
-          { error: `由于大模型输出过长导致格式破损，抢救数据失败。具体原因: ${parseResult.error}` },
-          { status: 502 }
-        )
-      }
-
-      if (shots.length > 0) {
-        // 续写时编号需要接续
+      if (result.error && result.new_shots.length === 0) {
+        console.error(`[API Plan] ❌ 第 ${iteration} 轮解析完全失败:`, result.error)
+        // 如果已经有累积分镜，不直接报错，而是用已有数据返回
         if (allShots.length > 0) {
-          const offset = allShots.length
-          shots.forEach((s, i) => { s.num = offset + i + 1 })
+          console.warn(`[API Plan] ⚠️ 解析失败但已有 ${allShots.length} 个分镜，提前终止并返回已有数据`)
+          break
         }
-        allShots.push(...shots)
-      }
-
-      if (finishReason === 'length' && round <= MAX_CONTINUATION_ROUNDS) {
-        // 被截断了，需要续写
-        const lastNum = allShots.length
-        console.log(`[API Plan] ⚠️ 第 ${round} 轮被截断（已累计 ${lastNum} 个分镜），发起续写...`)
-
-        // 注意：我们只把成功清理并闭合抢救过后的 JSON 塞回历史记录，否则纯断裂字符串容易带偏下一轮
-        const safeAssistantContent = JSON.stringify({ shots }, null, 2)
-        
-        messages.push(
-          { role: 'assistant', content: safeAssistantContent },
-          {
-            role: 'user',
-            content: `你的上一轮输出因 token 限制被截断了。请从第 [${String(lastNum + 1).padStart(2, '0')}] 个分镜继续往下生成，覆盖剧本中尚未处理的剩余部分。仍然严格输出 { "shots": [...] } 格式的 JSON，编号从 ${lastNum + 1} 开始。不要重复已生成的分镜。`
-          }
+        return NextResponse.json(
+          { error: `AI 输出格式异常: ${result.error}` },
+          { status: 502 },
         )
-        needsContinuation = true
-      } else {
-        needsContinuation = false
       }
+
+      if (result.new_shots.length === 0) {
+        // 空批次：可能是模型没有理解指令，或真的没有更多内容
+        stallCount++
+        console.warn(`[API Plan] ⚠️ 第 ${iteration} 轮返回 0 个分镜（连续空产出 ${stallCount}/${STALL_THRESHOLD}）`)
+        if (stallCount >= STALL_THRESHOLD) {
+          console.warn(`[API Plan] 连续 ${STALL_THRESHOLD} 轮空产出，强制终止循环`)
+          break
+        }
+        continue
+      }
+
+      // 重置空产出计数
+      stallCount = 0
+
+      // 编号接续：确保全局连续
+      const offset = allShots.length
+      result.new_shots.forEach((s, i) => {
+        s.num = offset + i + 1
+      })
+      allShots.push(...result.new_shots)
+
+      console.log(`[API Plan] ✅ 第 ${iteration} 轮获得 ${result.new_shots.length} 个分镜，累计 ${allShots.length} 个，is_finished: ${result.is_finished}`)
+
+      // ── 终止条件 ──
+      if (result.is_finished) {
+        console.log('[API Plan] 🏁 大模型报告 is_finished=true，剧本已完全覆盖')
+        break
+      }
+
+      // 如果被截断了，这一轮的数据仍然被保留（已通过栈匹配抢救），继续下一轮
+      if (finishReason === 'length') {
+        console.warn(`[API Plan] ⚠️ 第 ${iteration} 轮被 token 截断，已抢救 ${result.new_shots.length} 个分镜，继续下一轮迭代...`)
+      }
+    }
+
+    if (iteration >= MAX_ITERATIONS) {
+      console.warn(`[API Plan] ⚠️ 达到最大迭代次数 ${MAX_ITERATIONS}，强制终止`)
     }
 
     if (allShots.length === 0) {
-      console.error('[API Plan] ❌ AI 返回内容无法解析为 shots 数组，原始返回（前2000字符）:', lastRaw.slice(0, 2000))
       return NextResponse.json(
-        { error: 'AI 未能按格式生成分镜数组' },
-        { status: 502 }
+        { error: 'AI 未能生成任何有效分镜' },
+        { status: 502 },
       )
     }
 
-    // 重新统一编号
+    // 最终统一编号
     allShots.forEach((s, i) => { s.num = i + 1 })
 
-    console.log(`[API Plan] ✅ 分镜生成完成，共 ${round} 轮，累计 ${allShots.length} 个镜头`)
-    return NextResponse.json({ shots: allShots, rounds: round })
+    console.log(`[API Plan] 🎬 迭代式生成完成，共 ${iteration} 轮，累计 ${allShots.length} 个镜头`)
+    return NextResponse.json({ shots: allShots, rounds: iteration })
 
   } catch (error: any) {
     const errMsg = error?.message || String(error)
@@ -216,12 +276,12 @@ ${JSON.stringify(appearances, null, 2)}
     if (errStatus) {
       return NextResponse.json(
         { error: `AI 服务错误: ${errMsg}` },
-        { status: 502 }
+        { status: 502 },
       )
     }
     return NextResponse.json(
       { error: `分镜生成异常: ${errMsg}` },
-      { status: 500 }
+      { status: 500 },
     )
   }
 }
