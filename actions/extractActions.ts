@@ -270,7 +270,13 @@ export async function extractAssets(
 
     set((state) => ({
       nodes: [
-        ...state.nodes.filter((n) => !oldTargetIds.has(n.id)),
+        // 保留剩余节点，同时把 eraSetting 写回剧本节点 data
+        ...state.nodes
+          .filter((n) => !oldTargetIds.has(n.id))
+          .map((n) => n.id === scriptNodeId
+            ? { ...n, data: { ...n.data, eraSetting } }
+            : n
+          ),
         ...newNodes,
       ],
       edges: [
@@ -437,8 +443,20 @@ export async function extractByType(
     }
 
     if (newNodes.length > 0) {
-      set(s => ({ nodes: [...s.nodes, ...newNodes], edges: [...s.edges, ...newEdges] }))
+      set(s => ({
+        nodes: [
+          ...s.nodes.map(n => n.id === scriptNodeId
+            ? { ...n, data: { ...n.data, eraSetting } }
+            : n
+          ),
+          ...newNodes,
+        ],
+        edges: [...s.edges, ...newEdges],
+      }))
       get().setFitViewTrigger(Date.now())
+    } else if (eraSetting) {
+      // 没有新建节点但有 eraSetting，仍然写回剧本节点
+      get().updateNodeData(scriptNodeId, { eraSetting })
     }
 
     const labelMap: Record<string, string> = {
@@ -538,5 +556,137 @@ export async function fillNodeWithAI(
     if (timeoutId) clearTimeout(timeoutId)
     get().updateNodeData(scriptNodeId, { loading: false })
     get().updateNodeData(targetNodeId, { loading: false })
+  }
+}
+
+// ── extractHighlight ────────────────────────────────────────
+
+/**
+ * 局部框选提取：右键菜单触发，将选中文本发给 /api/extract-highlight，
+ * 结果以独立节点形式放在剧本卡片的左侧，不干扰现有节点。
+ */
+export async function extractHighlight(
+  get: StoreGet,
+  set: StoreSet,
+  scriptNodeId: string,
+  selectedText: string,
+  extractionType: 'prop' | 'scene' | 'character_appearance',
+): Promise<void> {
+  const scriptNode = get().nodes.find((n) => n.id === scriptNodeId)
+  if (!scriptNode) return
+
+  const fullScriptText: string = (scriptNode.data as any)?.text || ''
+
+  const controller = new AbortController()
+  const tid = setTimeout(() => controller.abort(), 90000)
+
+  try {
+    requireScriptConfig()
+
+    const res = await fetch('/api/extract-highlight', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getScriptHeaders() },
+      body: JSON.stringify({
+        selected_text: selectedText,
+        full_script: fullScriptText,
+        extraction_type: extractionType,
+      }),
+      signal: controller.signal,
+    })
+    clearTimeout(tid)
+
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}))
+      throw new Error(errBody?.error || `API ${res.status}`)
+    }
+
+    const data = await res.json()
+    const eraSetting = ''
+
+    const { characters = [], appearances = [], scenes = [], props = [] } = data
+
+    const newNodes: Node[] = []
+    const newEdges: any[] = []
+
+    // ── 放置坐标：剧本节点左侧，垂直居中排列 ──
+    const baseX = scriptNode.position.x - 700
+    const baseY = scriptNode.position.y
+    const SPACING = 220
+
+    // 角色节点
+    const newCharacterNodes: Node[] = []
+    for (let i = 0; i < characters.length; i++) {
+      const nodeId = `character-hl-${Date.now()}-${i}-${Math.random().toString(36).slice(2)}`
+      const nodeData = mapCharacterData(characters[i], eraSetting)
+      const node: Node = {
+        id: nodeId, type: 'character',
+        position: { x: baseX, y: baseY + i * SPACING - Math.floor((characters.length - 1) * SPACING / 2) },
+        data: nodeData, zIndex: 1000,
+      }
+      newNodes.push(node)
+      newCharacterNodes.push(node)
+      newEdges.push({ id: `e-hl-${scriptNodeId}-${nodeId}`, source: scriptNodeId, target: nodeId })
+    }
+
+    // 形象节点（尝试连到对应角色，否则连到剧本节点）
+    for (let i = 0; i < appearances.length; i++) {
+      const nodeId = `appearance-hl-${Date.now()}-${i}-${Math.random().toString(36).slice(2)}`
+      const nodeData = mapAppearanceData(appearances[i], eraSetting)
+      const appCharName: string = appearances[i].characterName || ''
+      let parentId = scriptNodeId
+      const matchedChar = newCharacterNodes.find(n => (n.data as any)?.name === appCharName)
+      if (matchedChar) parentId = matchedChar.id
+
+      newNodes.push({
+        id: nodeId, type: 'appearance',
+        position: { x: baseX - 280, y: baseY + i * SPACING - Math.floor((appearances.length - 1) * SPACING / 2) },
+        data: nodeData, zIndex: 1000,
+      })
+      newEdges.push({ id: `e-hl-${parentId}-${nodeId}`, source: parentId, target: nodeId })
+    }
+
+    // 场景节点
+    for (let i = 0; i < scenes.length; i++) {
+      const nodeId = `scene-hl-${Date.now()}-${i}-${Math.random().toString(36).slice(2)}`
+      newNodes.push({
+        id: nodeId, type: 'scene',
+        position: { x: baseX, y: baseY + i * SPACING - Math.floor((scenes.length - 1) * SPACING / 2) },
+        data: mapSceneData(scenes[i], eraSetting), zIndex: 1000,
+      })
+      newEdges.push({ id: `e-hl-${scriptNodeId}-${nodeId}`, source: scriptNodeId, target: nodeId })
+    }
+
+    // 道具节点
+    for (let i = 0; i < props.length; i++) {
+      const nodeId = `prop-hl-${Date.now()}-${i}-${Math.random().toString(36).slice(2)}`
+      newNodes.push({
+        id: nodeId, type: 'prop',
+        position: { x: baseX, y: baseY + i * SPACING - Math.floor((props.length - 1) * SPACING / 2) },
+        data: mapPropData(props[i], eraSetting), zIndex: 1000,
+      })
+      newEdges.push({ id: `e-hl-${scriptNodeId}-${nodeId}`, source: scriptNodeId, target: nodeId })
+    }
+
+    if (newNodes.length === 0) {
+      toast.error('未能从选中文本提取到有效资产')
+      return
+    }
+
+    set((s) => ({
+      nodes: [...s.nodes, ...newNodes],
+      edges: [...s.edges, ...newEdges],
+    }))
+
+    get().setFitViewTrigger(Date.now())
+
+    const typeLabel: Record<string, string> = {
+      prop: '道具', scene: '场景', character_appearance: '角色/形象',
+    }
+    toast.success(`已从选中文本提取 ${newNodes.length} 个${typeLabel[extractionType] ?? ''}节点`)
+  } catch (err) {
+    clearTimeout(tid)
+    if (err instanceof ByokConfigError) toast.error(err.message)
+    else if (err instanceof Error && err.name === 'AbortError') toast.error('提取超时，请重试')
+    else toast.error(`框选提取失败: ${err instanceof Error ? err.message : String(err)}`)
   }
 }

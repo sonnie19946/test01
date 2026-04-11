@@ -15,7 +15,7 @@ import {
 } from '@xyflow/react'
 import { applyDagreLayout } from '@/hooks/useLayoutEngine'
 import { generateReferenceImage as _generateReferenceImage, generateShotImage as _generateShotImage } from '@/actions/imageActions'
-import { extractAssets as _extractAssets, extractByType as _extractByType, fillNodeWithAI as _fillNodeWithAI } from '@/actions/extractActions'
+import { extractAssets as _extractAssets, extractByType as _extractByType, fillNodeWithAI as _fillNodeWithAI, extractHighlight as _extractHighlight } from '@/actions/extractActions'
 import { generateShotPool as _generateShotPool, refreshShotAssets as _refreshShotAssets } from '@/actions/shotActions'
 
 // ============================================================
@@ -90,6 +90,13 @@ interface FlowStore {
 
   // --- 连线时 AI 填充单个节点 ---
   fillNodeWithAI: (scriptNodeId: string, targetNodeId: string) => Promise<void>
+
+  // --- 框选局部提取 ---
+  extractHighlight: (
+    scriptNodeId: string,
+    selectedText: string,
+    extractionType: 'prop' | 'scene' | 'character_appearance'
+  ) => Promise<void>
 
   // --- 分镜池 AI 生成（新）---
   generateShotPool: (poolNodeId: string) => Promise<void>
@@ -232,6 +239,11 @@ export function createFlowStore(boardId: string): UseBoundStore<StoreApi<FlowSto
       // ----- 连线时 AI 填充单个节点（委托 extractActions）-----
       fillNodeWithAI: async (scriptNodeId, targetNodeId) => {
         await _fillNodeWithAI(get, scriptNodeId, targetNodeId)
+      },
+
+      // ----- 框选局部提取（委托 extractActions）-----
+      extractHighlight: async (scriptNodeId, selectedText, extractionType) => {
+        await _extractHighlight(get, set, scriptNodeId, selectedText, extractionType)
       },
 
 

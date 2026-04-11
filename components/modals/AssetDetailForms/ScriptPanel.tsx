@@ -1,7 +1,22 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { useFlowStore } from '@/hooks/useFlowStore'
 import { toast } from 'sonner'
 import { ScriptNodeData } from '@/types/nodes'
+
+// ── 右键菜单类型 ──────────────────────────────────────────────
+type ContextMenuState = {
+  x: number
+  y: number
+  selectedText: string
+} | null
+
+type ExtractHighlightType = 'prop' | 'scene' | 'character_appearance'
+
+const HIGHLIGHT_MENU_ITEMS: { type: ExtractHighlightType; label: string; icon: string }[] = [
+  { type: 'character_appearance', label: '提取角色/角色形象', icon: '👤' },
+  { type: 'scene',                label: '提取场景',          icon: '🏛️' },
+  { type: 'prop',                 label: '提取道具',          icon: '🔧' },
+]
 
 export function ScriptPanel({ 
   nodeId, 
@@ -14,8 +29,12 @@ export function ScriptPanel({
   closeAssetModal: () => void,
   nodes: any[] 
 }) {
-  const { updateNodeData, extractByType, extractAssets } = useFlowStore()
+  const { updateNodeData, extractByType, extractAssets, extractHighlight } = useFlowStore()
   const [loadingTypes, setLoadingTypes] = useState<Set<string>>(new Set())
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>(null)
+  const [highlightLoading, setHighlightLoading] = useState<ExtractHighlightType | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   const scriptText = data.text ?? ''
   const protagonist = data.protagonist ?? ''
@@ -56,6 +75,58 @@ export function ScriptPanel({
     setLoadingTypes(prev => new Set(prev).add('__all__'))
     try { await extractAssets(nodeId, scriptText) }
     finally { setLoadingTypes(prev => { const s = new Set(prev); s.delete('__all__'); return s }) }
+  }
+
+  // ── 右键菜单逻辑 ──────────────────────────────────────────
+  const handleContextMenu = useCallback((e: React.MouseEvent<HTMLTextAreaElement>) => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+
+    const selected = textarea.value.substring(textarea.selectionStart, textarea.selectionEnd).trim()
+    if (!selected) return  // 没有选中文字时不拦截，允许默认菜单
+
+    e.preventDefault()
+    e.stopPropagation()
+
+    // 精确定位到鼠标坐标（相对于视口）
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      selectedText: selected,
+    })
+  }, [])
+
+  // 点击外部关闭菜单
+  useEffect(() => {
+    if (!contextMenu) return
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setContextMenu(null)
+      }
+    }
+    // 使用 capture 在其他 pointerdown 之前捕获
+    document.addEventListener('mousedown', handler, true)
+    return () => document.removeEventListener('mousedown', handler, true)
+  }, [contextMenu])
+
+  // ESC 关闭菜单
+  useEffect(() => {
+    if (!contextMenu) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setContextMenu(null) }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [contextMenu])
+
+  const doHighlightExtract = async (type: ExtractHighlightType) => {
+    if (!contextMenu?.selectedText) return
+    const text = contextMenu.selectedText
+    setContextMenu(null)
+    setHighlightLoading(type)
+    try {
+      await extractHighlight(nodeId, text, type)
+    } finally {
+      setHighlightLoading(null)
+    }
   }
 
   const Spinner = () => (
@@ -122,6 +193,17 @@ export function ScriptPanel({
                 <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#111827' }}>{title}</h2>
               </div>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                {/* 框选提取 loading 提示 */}
+                {highlightLoading && (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: '7px',
+                    padding: '6px 12px', borderRadius: '8px',
+                    background: '#F0F4FF', color: '#4F6DC8', fontSize: '12px', fontWeight: 600,
+                  }}>
+                    <Spinner />
+                    <span>提取中…</span>
+                  </div>
+                )}
                 <button
                   style={{ ...BTN_BASE, background: '#F3F4F6', color: '#374151' }}
                   onMouseEnter={e => { e.currentTarget.style.background = '#E5E7EB' }}
@@ -156,10 +238,25 @@ export function ScriptPanel({
               </div>
             </div>
 
+            {/* 提示条 */}
+            <div style={{
+              padding: '8px 28px', background: '#FAFBFF', borderBottom: '1px solid #F3F4F6',
+              flexShrink: 0, display: 'flex', alignItems: 'center', gap: '6px',
+            }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round">
+                <circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>
+              </svg>
+              <span style={{ fontSize: '11.5px', color: '#9CA3AF', letterSpacing: '0.02em' }}>
+                框选任意文字后右键，可快速提取道具、场景或角色/形象到画布
+              </span>
+            </div>
+
             <div style={{ flex: 1, overflow: 'hidden', padding: '12px 24px 0' }}>
               <textarea
+                ref={textareaRef}
                 value={scriptText}
                 onChange={e => updateNodeData(nodeId, { text: e.target.value })}
+                onContextMenu={handleContextMenu}
                 placeholder="在此粘贴或编辑剧本内容…"
                 style={{
                   width: '100%', height: '100%', resize: 'none', outline: 'none',
@@ -233,6 +330,91 @@ export function ScriptPanel({
           </div>
         </div>
       </div>
+
+      {/* ── 右键悬浮菜单 ── */}
+      {contextMenu && (
+        <div
+          ref={menuRef}
+          style={{
+            position: 'fixed',
+            left: contextMenu.x,
+            top: contextMenu.y,
+            zIndex: 9999,
+            background: '#FFFFFF',
+            borderRadius: '12px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.16), 0 2px 8px rgba(0,0,0,0.08)',
+            border: '1px solid #E5E7EB',
+            overflow: 'hidden',
+            minWidth: '192px',
+            // 如果菜单接近屏幕右/下边缘，自动往左/上偏
+            transform: `translate(${contextMenu.x > window.innerWidth - 220 ? '-100%' : '0'}, ${contextMenu.y > window.innerHeight - 160 ? '-100%' : '0'})`,
+            animation: 'contextMenuIn 120ms cubic-bezier(0.16, 1, 0.3, 1)',
+          }}
+          onMouseDown={e => e.stopPropagation()}
+        >
+          {/* 选中文本预览 */}
+          <div style={{
+            padding: '10px 14px 8px',
+            borderBottom: '1px solid #F3F4F6',
+          }}>
+            <div style={{ fontSize: '10px', fontWeight: 700, color: '#9CA3AF', letterSpacing: '0.08em', marginBottom: '4px' }}>
+              已选中文字
+            </div>
+            <div style={{
+              fontSize: '12px', color: '#374151', lineHeight: 1.5,
+              maxWidth: '180px', overflow: 'hidden',
+              display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+            }}>
+              「{contextMenu.selectedText}」
+            </div>
+          </div>
+
+          {/* 菜单选项 */}
+          <div style={{ padding: '6px 0' }}>
+            {HIGHLIGHT_MENU_ITEMS.map((item) => (
+              <button
+                key={item.type}
+                onClick={() => doHighlightExtract(item.type)}
+                disabled={!!highlightLoading}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: '10px',
+                  padding: '9px 14px', border: 'none', background: 'transparent',
+                  cursor: highlightLoading ? 'not-allowed' : 'pointer',
+                  fontFamily: 'inherit', fontSize: '13px', fontWeight: 600,
+                  color: '#1F2937', textAlign: 'left', transition: 'background 100ms',
+                  opacity: highlightLoading && highlightLoading !== item.type ? 0.4 : 1,
+                }}
+                onMouseEnter={e => { if (!highlightLoading) e.currentTarget.style.background = '#F3F4F6' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+              >
+                <span style={{ fontSize: '15px', lineHeight: 1 }}>{item.icon}</span>
+                <span>{item.label}</span>
+                {highlightLoading === item.type && (
+                  <span style={{ marginLeft: 'auto' }}>
+                    <Spinner />
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* 底部说明 */}
+          <div style={{
+            padding: '7px 14px 9px', borderTop: '1px solid #F3F4F6',
+            fontSize: '10.5px', color: '#D1D5DB',
+          }}>
+            将提取到画布剧本卡片左侧
+          </div>
+        </div>
+      )}
+
+      {/* 右键菜单动画 */}
+      <style>{`
+        @keyframes contextMenuIn {
+          from { opacity: 0; transform: scale(0.92) translate(${contextMenu && contextMenu.x > window.innerWidth - 220 ? '-100%' : '0'}, ${contextMenu && contextMenu.y > window.innerHeight - 160 ? '-100%' : '0'}); }
+          to   { opacity: 1; }
+        }
+      `}</style>
     </>
   )
 }

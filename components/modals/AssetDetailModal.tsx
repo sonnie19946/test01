@@ -27,6 +27,28 @@ export function AssetDetailModal() {
 
   const [isLocalGenerating, setIsLocalGenerating] = useState(false)
 
+  // ── 打开时自动继承 eraSetting ──────────────────────────────
+  // 旧节点（来自 localStorage）的 eraSetting 可能为空，从画布其他节点继承
+  useEffect(() => {
+    if (!selectedAssetNode) return
+    const currentNodeData = (nodes.find(n => n.id === selectedAssetNode.id) || selectedAssetNode).data as Record<string, any>
+    if (currentNodeData?.eraSetting) return  // 已有值，不覆盖
+
+    // 优先找剧本节点，其次找任意有 eraSetting 的节点
+    let inherited = ''
+    const scriptNode = nodes.find(n => n.type === 'script')
+    if (scriptNode) inherited = (scriptNode.data as any)?.eraSetting || ''
+    if (!inherited) {
+      for (const n of nodes) {
+        const era = (n.data as any)?.eraSetting
+        if (era && typeof era === 'string' && era.trim()) { inherited = era; break }
+      }
+    }
+    if (inherited) {
+      updateNodeData(selectedAssetNode.id, { eraSetting: inherited })
+    }
+  }, [selectedAssetNode?.id])  // 只在打开（id 变化）时触发
+
   // ESC 关闭
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') closeAssetModal() }
