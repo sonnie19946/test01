@@ -109,13 +109,20 @@ export function ScriptPanel({
     return () => document.removeEventListener('mousedown', handler, true)
   }, [contextMenu])
 
-  // ESC 关闭菜单
+  // ESC：优先关菜单，其次关弹窗
   useEffect(() => {
-    if (!contextMenu) return
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setContextMenu(null) }
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (contextMenu) {
+          setContextMenu(null)
+        } else {
+          closeAssetModal()
+        }
+      }
+    }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [contextMenu])
+  }, [contextMenu, closeAssetModal])
 
   const doHighlightExtract = async (type: ExtractHighlightType) => {
     if (!contextMenu?.selectedText) return

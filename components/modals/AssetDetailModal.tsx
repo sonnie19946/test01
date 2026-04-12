@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useFlowStore } from '@/hooks/useFlowStore'
+import { getAssetDisplayName } from '@/lib/getAssetDisplayName'
 import { toast } from 'sonner'
 import { buildPromptFromData } from './AssetDetailForms/PromptBuilder'
 
@@ -16,10 +17,94 @@ import { ImageForm } from './AssetDetailForms/ImageForm'
 import { ScriptPanel } from './AssetDetailForms/ScriptPanel'
 import { ImageGenerationPanel } from './AssetDetailForms/ImageGenerationPanel'
 
+// ── Asset Nav Panel ──────────────────────────────────────────────
+function AssetNavPanel({ siblings, currentId, onSelect, typeName }: {
+  siblings: Array<{ id: string; name: string }>
+  currentId: string
+  onSelect: (id: string) => void
+  typeName: string
+}) {
+  const listRef = useRef<HTMLDivElement>(null)
+  const currentIndex = siblings.findIndex(s => s.id === currentId)
+
+  useEffect(() => {
+    if (!listRef.current || currentIndex < 0) return
+    const el = listRef.current.children[currentIndex] as HTMLElement
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [currentIndex])
+
+  return (
+    <div onClick={e => e.stopPropagation()} style={{
+      width: '180px', background: '#FFFFFF',
+      border: '1px solid rgba(0,0,0,0.07)', borderRadius: '14px',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
+      marginLeft: '14px', flexShrink: 0,
+      display: 'flex', flexDirection: 'column', overflow: 'hidden',
+      maxHeight: '82vh',
+    }}>
+      <div style={{
+        padding: '10px 14px 8px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        flexShrink: 0, borderBottom: '1px solid #F3F4F6',
+      }}>
+        <span style={{ fontSize: '10px', fontWeight: 600, color: '#C0C0C0', letterSpacing: '0.08em' }}>{typeName}导航</span>
+        <span style={{ fontSize: '9px', fontWeight: 500, color: '#D1D5DB' }}>{siblings.length} 个</span>
+      </div>
+      <div ref={listRef} style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
+        {siblings.map((s, i) => {
+          const isActive = s.id === currentId
+          const seq = String(i + 1).padStart(2, '0')
+          return (
+            <div
+              key={s.id}
+              onClick={() => onSelect(s.id)}
+              style={{
+                padding: '7px 12px', cursor: 'pointer',
+                display: 'flex', alignItems: 'flex-start', gap: '8px',
+                background: isActive ? '#EEF2FF' : 'transparent',
+                borderLeft: isActive ? '2.5px solid #4F6DC8' : '2.5px solid transparent',
+                transition: 'background 80ms, border-color 80ms',
+              }}
+              onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = '#F9FAFB' }}
+              onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+            >
+              <span style={{
+                fontSize: '10px', fontWeight: 700,
+                color: isActive ? '#4F6DC8' : '#D1D5DB',
+                minWidth: '18px', flexShrink: 0, paddingTop: '1px',
+                fontVariantNumeric: 'tabular-nums',
+              }}>
+                {seq}
+              </span>
+              <span style={{
+                fontSize: '11.5px', lineHeight: 1.45,
+                color: isActive ? '#1E3A8A' : '#6B7280',
+                fontWeight: isActive ? 600 : 400,
+                overflow: 'hidden', textOverflow: 'ellipsis',
+                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+              }}>
+                {s.name}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+      <div style={{
+        padding: '6px 12px', borderTop: '1px solid #F3F4F6',
+        fontSize: '9.5px', color: '#D1D5DB', textAlign: 'center',
+        flexShrink: 0,
+      }}>
+        ↑↓ 快速切换
+      </div>
+    </div>
+  )
+}
+
 export function AssetDetailModal() {
   const {
     selectedAssetNode,
     closeAssetModal,
+    openAssetModal,
     updateNodeData,
     generateReferenceImage,
     nodes,
@@ -49,12 +134,35 @@ export function AssetDetailModal() {
     }
   }, [selectedAssetNode?.id])  // 只在打开（id 变化）时触发
 
-  // ESC 关闭
+  // 同类型节点列表（用于导航面板和键盘快捷键）
+  const siblingNodes = useMemo(() =>
+    nodes
+      .filter(n => n.type === selectedAssetNode?.type && ['character', 'appearance', 'scene', 'prop'].includes(n.type || ''))
+      .map(n => ({ id: n.id, name: getAssetDisplayName(n.type, n.data as Record<string, any>) })),
+    [nodes, selectedAssetNode?.type]
+  )
+
+  // ESC 关闭 + ↑↓ 同类型导航（capture 阶段确保优先级最高）
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') closeAssetModal() }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [closeAssetModal])
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { closeAssetModal(); return }
+      if (!selectedAssetNode) return
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.contentEditable === 'true') return
+      const idx = siblingNodes.findIndex(s => s.id === selectedAssetNode.id)
+      if (idx < 0) return
+      if (e.key === 'ArrowUp' && idx > 0) {
+        e.preventDefault()
+        openAssetModal(siblingNodes[idx - 1].id)
+      }
+      if (e.key === 'ArrowDown' && idx < siblingNodes.length - 1) {
+        e.preventDefault()
+        openAssetModal(siblingNodes[idx + 1].id)
+      }
+    }
+    document.addEventListener('keydown', handler, true)
+    return () => document.removeEventListener('keydown', handler, true)
+  }, [closeAssetModal, openAssetModal, selectedAssetNode, siblingNodes])
 
   if (!selectedAssetNode) return null
 
@@ -129,6 +237,8 @@ export function AssetDetailModal() {
     }
   }
 
+  const showNav = siblingNodes.length > 1
+
   return (
     <>
       <div
@@ -149,86 +259,102 @@ export function AssetDetailModal() {
           padding: '24px',
         }}
       >
-        <div
-          style={{
-            background: '#FFFFFF',
-            borderRadius: '16px',
-            boxShadow: '0 24px 64px rgba(0,0,0,0.14)',
-            width: '100%',
-            maxWidth: '1240px',
-            maxHeight: '82vh',
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-            position: 'relative', 
-          }}
-        >
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '20px 32px 18px', borderBottom: '1px solid #F3F4F6', flexShrink: 0,
-          }}>
-            <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#111827' }}>
-              {typeName}详情
-            </h2>
-            <button
-              onClick={closeAssetModal}
-              title="关闭 (ESC)"
-              style={{
-                width: '28px', height: '28px', borderRadius: '6px',
-                border: 'none', background: 'transparent', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: '#9CA3AF', transition: 'background 0.15s, color 0.15s',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = '#F3F4F6'; e.currentTarget.style.color = '#374151' }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#9CA3AF' }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                <path d="M18 6L6 18"/><path d="M6 6l12 12"/>
-              </svg>
-            </button>
-          </div>
-
-          <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0 }}>
-            <div style={{
-              flex: '0 0 58%',
-              padding: '24px 36px 80px',
-              overflowY: 'auto',
+        <div style={{
+          display: 'flex', alignItems: 'stretch',
+          width: showNav ? 'min(calc(100vw - 48px), 1440px)' : 'min(calc(100vw - 48px), 1240px)',
+          maxHeight: '82vh',
+        }}>
+          {/* ── Modal card ── */}
+          <div
+            style={{
+              background: '#FFFFFF',
+              borderRadius: '16px',
+              boxShadow: '0 24px 64px rgba(0,0,0,0.14)',
+              flex: 1, minWidth: 0,
+              maxHeight: '82vh',
               display: 'flex',
               flexDirection: 'column',
-              gap: '14px',
-              borderRight: '1px solid #F3F4F6',
+              overflow: 'hidden',
+              position: 'relative', 
+            }}
+          >
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '20px 32px 18px', borderBottom: '1px solid #F3F4F6', flexShrink: 0,
             }}>
-              <div style={{
-                background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: '8px',
-                padding: '16px', marginBottom: '8px', fontSize: '13px',
-                color: '#4B5563', lineHeight: 1.6, fontFamily: 'system-ui, -apple-system, sans-serif'
-              }}>
-                <div style={{ fontWeight: 600, color: '#111827', marginBottom: '8px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                    <polyline points="14 2 14 8 20 8"></polyline>
-                    <line x1="16" y1="13" x2="8" y2="13"></line>
-                    <line x1="16" y1="17" x2="8" y2="17"></line>
-                    <polyline points="10 9 9 9 8 9"></polyline>
-                  </svg>
-                  画面推演预览 (Live Prompt)
-                </div>
-                <div style={{ whiteSpace: 'pre-wrap' }}>
-                  {buildPromptFromData(nodeData, nodeType)}
-                </div>
-              </div>
-
-              {renderForm()}
+              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#111827' }}>
+                {typeName}详情
+              </h2>
+              <button
+                onClick={closeAssetModal}
+                title="关闭 (ESC)"
+                style={{
+                  width: '28px', height: '28px', borderRadius: '6px',
+                  border: 'none', background: 'transparent', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: '#9CA3AF', transition: 'background 0.15s, color 0.15s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = '#F3F4F6'; e.currentTarget.style.color = '#374151' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#9CA3AF' }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <path d="M18 6L6 18"/><path d="M6 6l12 12"/>
+                </svg>
+              </button>
             </div>
 
-            <ImageGenerationPanel 
-              imageUrl={imageUrl} 
-              isAnyGenerating={isAnyGenerating} 
-              handleCopyPrompt={handleCopyPrompt} 
-              handleGenerateImage={handleGenerateImage} 
-              handleDownload={handleDownload} 
-            />
+            <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0 }}>
+              <div style={{
+                flex: '0 0 58%',
+                padding: '24px 36px 80px',
+                overflowY: 'auto',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '14px',
+                borderRight: '1px solid #F3F4F6',
+              }}>
+                <div style={{
+                  background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: '8px',
+                  padding: '16px', marginBottom: '8px', fontSize: '13px',
+                  color: '#4B5563', lineHeight: 1.6, fontFamily: 'system-ui, -apple-system, sans-serif'
+                }}>
+                  <div style={{ fontWeight: 600, color: '#111827', marginBottom: '8px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                      <polyline points="14 2 14 8 20 8"></polyline>
+                      <line x1="16" y1="13" x2="8" y2="13"></line>
+                      <line x1="16" y1="17" x2="8" y2="17"></line>
+                      <polyline points="10 9 9 9 8 9"></polyline>
+                    </svg>
+                    画面推演预览 (Live Prompt)
+                  </div>
+                  <div style={{ whiteSpace: 'pre-wrap' }}>
+                    {buildPromptFromData(nodeData, nodeType)}
+                  </div>
+                </div>
+
+                {renderForm()}
+              </div>
+
+              <ImageGenerationPanel 
+                imageUrl={imageUrl} 
+                isAnyGenerating={isAnyGenerating} 
+                handleCopyPrompt={handleCopyPrompt} 
+                handleGenerateImage={handleGenerateImage} 
+                handleDownload={handleDownload} 
+              />
+            </div>
           </div>
+
+          {/* ── Right navigation panel ── */}
+          {showNav && (
+            <AssetNavPanel
+              siblings={siblingNodes}
+              currentId={currentNode.id}
+              onSelect={(id) => openAssetModal(id)}
+              typeName={typeName}
+            />
+          )}
         </div>
       </div>
     </>

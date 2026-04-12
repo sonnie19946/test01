@@ -287,7 +287,7 @@ function MentionField({ label, initialValue, onChangeText, assetNodes, rows = 3,
           contentEditable
           suppressContentEditableWarning
           onInput={handleInput}
-          onKeyDown={e => { if (e.key === 'Escape') setShowMention(false) }}
+          onKeyDown={e => { if (e.key === 'Escape' && showMention) setShowMention(false) }}
           onDragOver={e => e.preventDefault()}
           onDrop={handleDrop}
           style={{
