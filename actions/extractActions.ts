@@ -49,30 +49,82 @@ export async function extractAssets(
   // 设置 loading 状态
   get().updateNodeData(scriptNodeId, { loading: true })
 
-  let timeoutId: NodeJS.Timeout | null = null
   try {
     requireScriptConfig()
-    toast.info('开始提取资产...')
-    const controller = new AbortController()
-    timeoutId = setTimeout(() => controller.abort(new Error('extract timeout')), 180000) // 180秒超时
 
-    const res = await fetch('/api/extract', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getScriptHeaders() },
-      body: JSON.stringify({ scriptText }),
-      signal: controller.signal,
-    })
-
-    clearTimeout(timeoutId)
-    timeoutId = null
-
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({}))
-      const detail = errBody?.error || errBody?.detail || `${res.status} ${res.statusText}`
-      throw new Error(`资产提取失败: ${detail}`)
+    // ── 三线并行提取引擎 ──────────────────────────────────────
+    const LABELS: Record<string, string> = {
+      character_appearance: '🎭 角色+形象',
+      scene: '🏛️ 场景',
+      prop: '🔧 道具',
     }
 
-    const { eraSetting = '', characters = [], scenes = [], props = [], appearances = [] } = await res.json()
+    const fetchType = async (type: string): Promise<any> => {
+      const label = LABELS[type]
+      toast.info(`${label} 提取中...`)
+      console.log(`[extractAssets] ⚡ 并行发射: ${label}`)
+      const t0 = Date.now()
+
+      const controller = new AbortController()
+      const tid = setTimeout(() => controller.abort(new Error(`${type} timeout`)), 180000)
+      try {
+        const res = await fetch('/api/extract-highlight', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getScriptHeaders() },
+          body: JSON.stringify({
+            selected_text: scriptText,
+            full_script: scriptText,
+            extraction_type: type,
+          }),
+          signal: controller.signal,
+        })
+        clearTimeout(tid)
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => ({}))
+          throw new Error(errBody?.error || `${res.status}`)
+        }
+        const data = await res.json()
+        const elapsed = ((Date.now() - t0) / 1000).toFixed(1)
+        toast.success(`${label} 提取完成 (${elapsed}s)`)
+        console.log(`[extractAssets] ✅ ${label} 完成, 耗时 ${elapsed}s`)
+        return data
+      } catch (err) {
+        clearTimeout(tid)
+        const elapsed = ((Date.now() - t0) / 1000).toFixed(1)
+        toast.error(`${label} 提取失败 (${elapsed}s)`)
+        console.error(`[extractAssets] ❌ ${label} 失败 (${elapsed}s):`, err)
+        throw err
+      }
+    }
+
+    console.log('[extractAssets] 🚀 三线并行提取启动！')
+    toast.info('⚡ 三线并行提取启动：角色 + 场景 + 道具 同时发射！')
+
+    const [charResult, sceneResult, propResult] = await Promise.allSettled([
+      fetchType('character_appearance'),
+      fetchType('scene'),
+      fetchType('prop'),
+    ])
+
+    // 容错合并：某一路失败不影响其他
+    const charData = charResult.status === 'fulfilled' ? charResult.value : {}
+    const sceneData = sceneResult.status === 'fulfilled' ? sceneResult.value : {}
+    const propData = propResult.status === 'fulfilled' ? propResult.value : {}
+
+    const eraSetting: string = charData.eraSetting || ''
+    const characters: any[] = charData.characters || []
+    const appearances: any[] = charData.appearances || []
+    const scenes: any[] = sceneData.scenes || []
+    const props: any[] = propData.props || []
+
+    // 统计结果
+    const successCount = [charResult, sceneResult, propResult].filter(r => r.status === 'fulfilled').length
+    const failCount = 3 - successCount
+    console.log(`[extractAssets] 📊 并行结果: ${successCount}/3 成功, 角色=${characters.length} 形象=${appearances.length} 场景=${scenes.length} 道具=${props.length}`)
+
+    if (failCount > 0 && failCount < 3) {
+      toast.warning(`${successCount}/3 项提取成功，${failCount} 项失败（已保留成功部分）`)
+    }
 
     // 空数据检查
     if (characters.length === 0 && scenes.length === 0 && props.length === 0 && appearances.length === 0) {
@@ -312,8 +364,6 @@ export async function extractAssets(
       toast.error('剧本提取失败，请检查网络或剧本格式')
     }
   } finally {
-    // 清除超时定时器
-    if (timeoutId) clearTimeout(timeoutId)
     // 清除 loading 状态
     get().updateNodeData(scriptNodeId, { loading: false })
   }
