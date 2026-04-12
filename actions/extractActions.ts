@@ -54,7 +54,7 @@ export async function extractAssets(
     requireScriptConfig()
     toast.info('开始提取资产...')
     const controller = new AbortController()
-    timeoutId = setTimeout(() => controller.abort(new Error('extract timeout')), 180000) // 180秒超时
+    timeoutId = setTimeout(() => controller.abort(new Error('extract timeout')), 55000) // 55秒超时（Vercel maxDuration=60）
 
     const res = await fetch('/api/extract', {
       method: 'POST',
@@ -352,7 +352,7 @@ export async function extractByType(
   try {
     requireScriptConfig()
     const controller = new AbortController()
-    const tid = setTimeout(() => controller.abort(), 90000)
+    const tid = setTimeout(() => controller.abort(), 55000)
 
     const res = await fetch('/api/extract', {
       method: 'POST',
@@ -504,7 +504,7 @@ export async function fillNodeWithAI(
   try {
     requireScriptConfig()
     const controller = new AbortController()
-    timeoutId = setTimeout(() => controller.abort(), 30000) // 30秒超时
+    timeoutId = setTimeout(() => controller.abort(), 55000) // 55秒超时
 
     const res = await fetch('/api/extract', {
       method: 'POST',
@@ -578,7 +578,7 @@ export async function extractHighlight(
   const fullScriptText: string = (scriptNode.data as any)?.text || ''
 
   const controller = new AbortController()
-  const tid = setTimeout(() => controller.abort(), 90000)
+  const tid = setTimeout(() => controller.abort(), 55000)
 
   try {
     requireScriptConfig()

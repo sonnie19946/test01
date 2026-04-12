@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createScriptClient } from '@/lib/openaiClient'
 import { EXTRACT_SYSTEM_PROMPT } from './prompts'
 
+export const maxDuration = 60
+
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const scriptText: string = body.scriptText ?? ''

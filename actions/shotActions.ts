@@ -27,6 +27,9 @@ type StoreSet = (fn: (state: { nodes: Node[] }) => Partial<{ nodes: Node[] }>) =
 
 // ── generateShotPool ────────────────────────────────────────
 
+const MAX_ITERATIONS = 60     // 安全阀（60 × 8 = 最多 480 个分镜）
+const STALL_THRESHOLD = 3     // 连续空产出轮次上限
+
 export async function generateShotPool(
   get: StoreGet,
   set: StoreSet,
@@ -37,7 +40,6 @@ export async function generateShotPool(
 
   get().updateNodeData(poolNodeId, { loading: true, shots: [] })
 
-  let timeoutId: NodeJS.Timeout | null = null
   try {
     requireScriptConfig()
     // 1. 收集连入的资产节点
@@ -100,26 +102,7 @@ export async function generateShotPool(
       }
     }
 
-    // 3. 调用 API
-    const controller = new AbortController()
-    timeoutId = setTimeout(() => controller.abort(new Error('pool timeout')), 900000) // 15 分钟，给长剧本留足时间
-    const res = await fetch('/api/plan', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getScriptHeaders() },
-      body: JSON.stringify({ scriptText, characters, scenes, props, appearances, eraSetting }),
-      signal: controller.signal,
-    })
-    clearTimeout(timeoutId); timeoutId = null
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({}))
-      const detail = errBody?.error || `${res.status} ${res.statusText}`
-      throw new Error(`分镜生成失败: ${detail}`)
-    }
-
-    const { shots = [] } = await res.json()
-    if (!shots.length) throw new Error('AI 未返回有效分镜数据')
-
-    // 构建资产名称 → 节点ID 的查找表（用于解析 AI 返回的 refs 字符串数组）
+    // 3. 构建资产名称 → 节点ID 的查找表（用于解析 AI 返回的 refs 字符串数组）
     const allAssetNodes = get().nodes.filter(n =>
       ['character', 'appearance', 'scene', 'prop'].includes(n.type || '')
     )
@@ -156,55 +139,142 @@ export async function generateShotPool(
       return result
     }
 
-    // 4. 初始化所有分镜为 pending
-    const pendingShots = shots.map((_: any, i: number) => ({
-      id: `si-${poolNodeId}-${i}`,
-      num: i + 1, title: '', plot: '', camera: '', action: '', emotion: '',
-      status: 'pending' as const, refs: [],
-    }))
-    get().updateNodeData(poolNodeId, { shots: pendingShots, loading: false })
+    // ── 4. 迭代生成主循环（每轮一次 HTTP 请求 → 5-8 个分镜） ──
+    const allGeneratedShots: any[] = [] // 发送给 API 的历史上下文（原始 AI 数据）
+    let iteration = 0
+    let stallCount = 0
 
-    // 5. 逐条展示（generating → done）
-    for (let i = 0; i < shots.length; i++) {
-      const s = shots[i]
-      // marking generating
-      set(state => ({
-        nodes: state.nodes.map(n => n.id !== poolNodeId ? n : {
-          ...n, data: {
-            ...n.data,
-            shots: (n.data as any).shots.map((item: any, j: number) =>
-              j === i ? { ...item, status: 'generating' } : item
-            )
-          }
-        })
-      }))
-      await new Promise(r => setTimeout(r, 480))
+    toast.info('开始迭代式分镜生成...')
 
-      // mark done
-      set(state => ({
-        nodes: state.nodes.map(n => n.id !== poolNodeId ? n : {
-          ...n, data: {
-            ...n.data,
-            shots: (n.data as any).shots.map((item: any, j: number) =>
-              j === i ? {
-                ...item,
-                title: s.nodeName || s.title || `分镜 ${String(i + 1).padStart(2, '0')}`,
-                plot: s.plot || s.scenario || '',
-                camera: s.camera || '',
-                action: s.action || '',
-                emotion: s.emotion || '',
-                prompt: s.prompt || '',
-                refs: resolveRefs(s.refs),
-                status: 'done',
-              } : item
-            )
-          }
+    while (iteration < MAX_ITERATIONS) {
+      iteration++
+      console.log(`[generateShotPool] ─── 第 ${iteration} 轮（已累计 ${allGeneratedShots.length} 个分镜）───`)
+
+      // 每轮单独的 AbortController（55s 超时，留 5s 余量给 Vercel 60s 限制）
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(new Error('single round timeout')), 55000)
+
+      let res: Response
+      try {
+        res = await fetch('/api/plan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getScriptHeaders() },
+          body: JSON.stringify({
+            scriptText, characters, scenes, props, appearances, eraSetting,
+            generatedShots: allGeneratedShots,
+          }),
+          signal: controller.signal,
         })
-      }))
-      await new Promise(r => setTimeout(r, 180))
+        clearTimeout(timeoutId)
+      } catch (fetchErr) {
+        clearTimeout(timeoutId)
+        // 网络/超时错误：如果已有分镜，优雅降级
+        if (allGeneratedShots.length > 0) {
+          console.warn(`[generateShotPool] 第 ${iteration} 轮网络失败，已有 ${allGeneratedShots.length} 个分镜，提前终止`)
+          toast.warning(`第 ${iteration} 轮请求失败，已保留前 ${allGeneratedShots.length} 个分镜`)
+          break
+        }
+        throw fetchErr
+      }
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}))
+        const detail = errBody?.error || `${res.status} ${res.statusText}`
+        if (allGeneratedShots.length > 0) {
+          console.warn(`[generateShotPool] 第 ${iteration} 轮 API 错误: ${detail}，提前终止`)
+          toast.warning(`第 ${iteration} 轮失败，已保留前 ${allGeneratedShots.length} 个分镜`)
+          break
+        }
+        throw new Error(`分镜生成失败: ${detail}`)
+      }
+
+      const { new_shots = [], is_finished = false } = await res.json()
+
+      // 空批次处理
+      if (new_shots.length === 0) {
+        stallCount++
+        console.warn(`[generateShotPool] 第 ${iteration} 轮返回 0 个分镜（连续空产出 ${stallCount}/${STALL_THRESHOLD}）`)
+        if (stallCount >= STALL_THRESHOLD) {
+          console.warn(`[generateShotPool] 连续 ${STALL_THRESHOLD} 轮空产出，强制终止`)
+          break
+        }
+        continue
+      }
+
+      stallCount = 0
+      allGeneratedShots.push(...new_shots)
+
+      // ── 逐条动画追加到 UI（瀑布流效果） ──
+      const baseIdx = allGeneratedShots.length - new_shots.length
+      for (let i = 0; i < new_shots.length; i++) {
+        const s = new_shots[i]
+        const globalIdx = baseIdx + i
+        const shotId = `si-${poolNodeId}-${globalIdx}`
+
+        // 追加为 generating 状态
+        set(state => ({
+          nodes: state.nodes.map(n => n.id !== poolNodeId ? n : {
+            ...n, data: {
+              ...n.data,
+              shots: [
+                ...(n.data as any).shots,
+                {
+                  id: shotId,
+                  num: globalIdx + 1,
+                  title: '', plot: '', camera: '', action: '', emotion: '',
+                  status: 'generating' as const,
+                  refs: [],
+                },
+              ],
+            },
+          }),
+        }))
+        await new Promise(r => setTimeout(r, 300))
+
+        // 填充真实数据，标记 done
+        set(state => ({
+          nodes: state.nodes.map(n => n.id !== poolNodeId ? n : {
+            ...n, data: {
+              ...n.data,
+              shots: (n.data as any).shots.map((item: any) =>
+                item.id === shotId ? {
+                  ...item,
+                  title: s.nodeName || s.title || `分镜 ${String(globalIdx + 1).padStart(2, '0')}`,
+                  plot: s.plot || s.scenario || '',
+                  camera: s.camera || '',
+                  action: s.action || '',
+                  emotion: s.emotion || '',
+                  prompt: s.prompt || '',
+                  refs: resolveRefs(s.refs),
+                  status: 'done',
+                } : item,
+              ),
+            },
+          }),
+        }))
+        await new Promise(r => setTimeout(r, 120))
+      }
+
+      console.log(`[generateShotPool] ✅ 第 ${iteration} 轮完成，+${new_shots.length} 个，累计 ${allGeneratedShots.length} 个`)
+      toast.info(`第 ${iteration} 轮完成，已累计 ${allGeneratedShots.length} 个分镜${is_finished ? '（剧本已覆盖完毕）' : '...'}`)
+
+      // ── 终止条件 ──
+      if (is_finished) {
+        console.log('[generateShotPool] 🏁 is_finished=true，剧本已完全覆盖')
+        break
+      }
     }
 
-    toast.success(`分镜池生成完成，共 ${shots.length} 个分镜`)
+    if (iteration >= MAX_ITERATIONS) {
+      console.warn(`[generateShotPool] ⚠️ 达到最大迭代次数 ${MAX_ITERATIONS}，强制终止`)
+    }
+
+    if (allGeneratedShots.length === 0) {
+      throw new Error('AI 未返回有效分镜数据')
+    }
+
+    get().updateNodeData(poolNodeId, { loading: false })
+    toast.success(`分镜池生成完成，共 ${allGeneratedShots.length} 个分镜（${iteration} 轮迭代）`)
     // 重新布局，让分镜池出现在正确位置
     get().autoLayout()
   } catch (err) {
@@ -216,8 +286,6 @@ export async function generateShotPool(
     else
       toast.error('分镜池生成失败')
     get().updateNodeData(poolNodeId, { loading: false })
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId)
   }
 }
 

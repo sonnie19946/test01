@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createScriptClient } from '@/lib/openaiClient'
 
+export const maxDuration = 60
+
 // ── 按类型组装 system prompt ─────────────────────────────────
 
 function buildSystemPrompt(extractionType: string): string {
