@@ -36,7 +36,7 @@ function buildSystemPrompt(extractionType: string): string {
   // extraction_type === 'character_appearance'：合并角色+形象一次生成
   return `${sharedPrefix}
 
-{\n  "characters": [\n    {\n      "name": "人物姓名（代词如'他/她'输出为'主角(他)'）",\n      "gender": "男或女（强制推断，禁止填未知）",\n      "desc": "整体外貌与性格摘要",\n      "ageRange": "具体年龄段（如：30-35岁，必须推断）",\n      "tags": ["性格/职业标签"],\n      "faceDetails": {\n        "faceShape": "天生脸型骨相（强制推断，禁止填未明确）",\n        "eyes": "天生眼部轮廓（强制推断）",\n        "nose": "天生鼻部结构（强制推断）",\n        "mouth": "天生唇形（强制推断）",\n        "eyebrows": "天生眉骨与眉形（强制推断）",\n        "chin": "天生下颚骨骼（强制推断）",\n        "skinTone": "天生基础肤色肤质（强制推断）",\n        "hair": "天生发质发色（强制推断）",\n        "otherFeatures": "固定永久面部特征（如：天生黑痣/陈年旧疤，可选）"\n      }\n    }\n  ],\n  "appearances": [\n    {\n      "characterName": "所属角色姓名",\n      "versionName": "极简短形象标签（限10字，如：底层敛尸工、晚宴伪装版）",\n      "temporalState": "剧作动态特征与伤痕（如：脸颊凹陷、发紫嘴唇）",\n      "silhouette": "几何轮廓与体态痕迹",\n      "headwear": "头部配饰（非强制）",\n      "upperBody": "上半身服装材质与磨损",\n      "lowerBody": "下半身服装材质与磨损",\n      "footwear": "鞋靴材质与物理特征",\n      "accessories": "随身小物件与手部细节（非强制）",\n      "clothingIdentity": "基于着装推断的社会阶层",\n      "sensoryTranslation": "非视觉感官的视觉映射（气味/温度转化为具象画面）",\n      "colorScheme": "纯客观色彩分布",\n      "frontView": "正面构图与几何分布",\n      "backView": "背面构图与表面纹理",\n      "sideDetail": "侧面图貌细节"\n    }\n  ]\n}
+{\n  "eraSetting": "整个剧本的时代背景设定（必须推断！如：19世纪维多利亚时代英国、中国明朝末年、近未来赛博朋克东京等。这是全局性设定，将统一注入所有资产）",\n  "characters": [\n    {\n      "name": "人物姓名（代词如'他/她'输出为'主角(他)'）",\n      "gender": "男或女（强制推断，禁止填未知）",\n      "desc": "整体外貌与性格摘要",\n      "ageRange": "具体年龄段（如：30-35岁，必须推断）",\n      "tags": ["性格/职业标签"],\n      "faceDetails": {\n        "faceShape": "天生脸型骨相（强制推断，禁止填未明确）",\n        "eyes": "天生眼部轮廓（强制推断）",\n        "nose": "天生鼻部结构（强制推断）",\n        "mouth": "天生唇形（强制推断）",\n        "eyebrows": "天生眉骨与眉形（强制推断）",\n        "chin": "天生下颚骨骼（强制推断）",\n        "skinTone": "天生基础肤色肤质（强制推断）",\n        "hair": "天生发质发色（强制推断）",\n        "otherFeatures": "固定永久面部特征（如：天生黑痣/陈年旧疤，可选）"\n      }\n    }\n  ],\n  "appearances": [\n    {\n      "characterName": "所属角色姓名",\n      "versionName": "极简短形象标签（限10字，如：底层敛尸工、晚宴伪装版）",\n      "temporalState": "剧作动态特征与伤痕（如：脸颊凹陷、发紫嘴唇）",\n      "silhouette": "几何轮廓与体态痕迹",\n      "headwear": "头部配饰（非强制）",\n      "upperBody": "上半身服装材质与磨损",\n      "lowerBody": "下半身服装材质与磨损",\n      "footwear": "鞋靴材质与物理特征",\n      "accessories": "随身小物件与手部细节（非强制）",\n      "clothingIdentity": "基于着装推断的社会阶层",\n      "sensoryTranslation": "非视觉感官的视觉映射（气味/温度转化为具象画面）",\n      "colorScheme": "纯客观色彩分布",\n      "frontView": "正面构图与几何分布",\n      "backView": "背面构图与表面纹理",\n      "sideDetail": "侧面图貌细节"\n    }\n  ]\n}
 
 【核心规则】：
 1. faceDetails 只提取天生骨相，绝对不混入剧情状态（饥饿凹陷、冻伤嘴唇等），这些属于 temporalState
@@ -88,7 +88,7 @@ ${selectedText}`
         { role: 'user', content: userMessage },
       ],
       temperature: 0.1,
-      max_tokens: 4096,
+      max_tokens: 8192,
     })
 
     const raw = completion.choices[0]?.message?.content ?? '{}'
@@ -115,6 +115,7 @@ ${selectedText}`
 
     return NextResponse.json({
       extraction_type: extractionType,
+      eraSetting: result.eraSetting || '',
       characters: result.characters || [],
       appearances: result.appearances || [],
       scenes: result.scenes || [],

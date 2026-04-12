@@ -49,35 +49,70 @@ export async function extractAssets(
   // 设置 loading 状态
   get().updateNodeData(scriptNodeId, { loading: true })
 
-  let timeoutId: NodeJS.Timeout | null = null
   try {
     requireScriptConfig()
-    toast.info('开始提取资产...')
-    const controller = new AbortController()
-    timeoutId = setTimeout(() => controller.abort(new Error('extract timeout')), 55000) // 55秒超时（Vercel maxDuration=60）
+    toast.info('开始并行提取资产（角色+场景+道具）...')
 
-    const res = await fetch('/api/extract', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getScriptHeaders() },
-      body: JSON.stringify({ scriptText }),
-      signal: controller.signal,
-    })
-
-    clearTimeout(timeoutId)
-    timeoutId = null
-
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({}))
-      const detail = errBody?.error || errBody?.detail || `${res.status} ${res.statusText}`
-      throw new Error(`资产提取失败: ${detail}`)
+    // ── 并行发 3 个请求，每个只提取一种类型 ──
+    const fetchType = async (type: string) => {
+      const controller = new AbortController()
+      const tid = setTimeout(() => controller.abort(new Error(`${type} timeout`)), 55000)
+      try {
+        const res = await fetch('/api/extract-highlight', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getScriptHeaders() },
+          body: JSON.stringify({
+            selected_text: scriptText,   // 全文就是"选中文本"
+            full_script: scriptText,     // 上下文也是全文
+            extraction_type: type,
+          }),
+          signal: controller.signal,
+        })
+        clearTimeout(tid)
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => ({}))
+          throw new Error(errBody?.error || `${res.status}`)
+        }
+        return await res.json()
+      } catch (err) {
+        clearTimeout(tid)
+        throw err
+      }
     }
 
-    const { eraSetting = '', characters = [], scenes = [], props = [], appearances = [] } = await res.json()
+    const [charResult, sceneResult, propResult] = await Promise.allSettled([
+      fetchType('character_appearance'),
+      fetchType('scene'),
+      fetchType('prop'),
+    ])
+
+    // 提取结果（容错：某一路失败不影响其他）
+    const charData = charResult.status === 'fulfilled' ? charResult.value : {}
+    const sceneData = sceneResult.status === 'fulfilled' ? sceneResult.value : {}
+    const propData = propResult.status === 'fulfilled' ? propResult.value : {}
+
+    // 报告失败
+    if (charResult.status === 'rejected') console.error('[extractAssets] 角色提取失败:', charResult.reason)
+    if (sceneResult.status === 'rejected') console.error('[extractAssets] 场景提取失败:', sceneResult.reason)
+    if (propResult.status === 'rejected') console.error('[extractAssets] 道具提取失败:', propResult.reason)
+
+    // 合并结果
+    const eraSetting: string = charData.eraSetting || ''
+    const characters: any[] = charData.characters || []
+    const appearances: any[] = charData.appearances || []
+    const scenes: any[] = sceneData.scenes || []
+    const props: any[] = propData.props || []
 
     // 空数据检查
     if (characters.length === 0 && scenes.length === 0 && props.length === 0 && appearances.length === 0) {
       toast.error('未识别到有效资产')
       return
+    }
+
+    // 部分成功反馈
+    const failCount = [charResult, sceneResult, propResult].filter(r => r.status === 'rejected').length
+    if (failCount > 0 && failCount < 3) {
+      toast.warning(`${3 - failCount}/3 项提取成功，${failCount} 项失败`)
     }
 
     // 递归收集剧本节点的所有后代节点（BFS）
@@ -312,8 +347,6 @@ export async function extractAssets(
       toast.error('剧本提取失败，请检查网络或剧本格式')
     }
   } finally {
-    // 清除超时定时器
-    if (timeoutId) clearTimeout(timeoutId)
     // 清除 loading 状态
     get().updateNodeData(scriptNodeId, { loading: false })
   }
