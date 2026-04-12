@@ -377,9 +377,96 @@ function AssetPanel({ assets, onAdd, aiRefs }: {
   )
 }
 
+// ── Right floating shot navigation panel ────────────────────
+function ShotNavPanel({ shots, currentIndex, onSelect }: {
+  shots: ShotItem[]
+  currentIndex: number
+  onSelect: (index: number) => void
+}) {
+  const listRef = useRef<HTMLDivElement>(null)
+
+  // 自动滚动到当前选中的分镜
+  useEffect(() => {
+    if (!listRef.current) return
+    const activeEl = listRef.current.children[currentIndex] as HTMLElement
+    if (activeEl) {
+      activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
+  }, [currentIndex])
+
+  return (
+    <div onClick={e => e.stopPropagation()} style={{
+      width: '180px', background: '#FFFFFF',
+      border: '1px solid rgba(0,0,0,0.07)', borderRadius: '14px',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
+      marginLeft: '14px', flexShrink: 0,
+      display: 'flex', flexDirection: 'column', overflow: 'hidden',
+      maxHeight: '82vh',
+    }}>
+      <div style={{
+        padding: '10px 14px 8px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        flexShrink: 0, borderBottom: '1px solid #F3F4F6',
+      }}>
+        <span style={{ fontSize: '10px', fontWeight: 600, color: '#C0C0C0', letterSpacing: '0.08em' }}>分镜导航</span>
+        <span style={{ fontSize: '9px', fontWeight: 500, color: '#D1D5DB' }}>{shots.length} 个</span>
+      </div>
+      <div ref={listRef} style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
+        {shots.map((s, i) => {
+          const isActive = i === currentIndex
+          const seq = String(s.num ?? i + 1).padStart(2, '0')
+          const rawTitle = s.title || '未命名'
+          const cleanTitle = rawTitle.replace(/^\[?\d+\s*/, '').replace(/\]$/, '') || '未命名'
+          return (
+            <div
+              key={s.id || i}
+              onClick={() => onSelect(i)}
+              style={{
+                padding: '7px 12px', cursor: 'pointer',
+                display: 'flex', alignItems: 'flex-start', gap: '8px',
+                background: isActive ? '#EEF2FF' : 'transparent',
+                borderLeft: isActive ? '2.5px solid #4F6DC8' : '2.5px solid transparent',
+                transition: 'background 80ms, border-color 80ms',
+              }}
+              onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = '#F9FAFB' }}
+              onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+            >
+              <span style={{
+                fontSize: '10px', fontWeight: 700,
+                color: isActive ? '#4F6DC8' : '#D1D5DB',
+                minWidth: '18px', flexShrink: 0, paddingTop: '1px',
+                fontVariantNumeric: 'tabular-nums',
+              }}>
+                {seq}
+              </span>
+              <span style={{
+                fontSize: '11.5px', lineHeight: 1.45,
+                color: isActive ? '#1E3A8A' : '#6B7280',
+                fontWeight: isActive ? 600 : 400,
+                overflow: 'hidden', textOverflow: 'ellipsis',
+                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+              }}>
+                {cleanTitle}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+      {/* 快捷键提示 */}
+      <div style={{
+        padding: '6px 12px', borderTop: '1px solid #F3F4F6',
+        fontSize: '9.5px', color: '#D1D5DB', textAlign: 'center',
+        flexShrink: 0,
+      }}>
+        ↑↓ 快速切换
+      </div>
+    </div>
+  )
+}
+
 // ── Main Modal ───────────────────────────────────────────────────
 export default function ShotItemModal() {
-  const { selectedShotItem, closeShotItemModal, nodes, updateShotItem } = useFlowStore()
+  const { selectedShotItem, closeShotItemModal, openShotItemModal, nodes, updateShotItem } = useFlowStore()
 
   const poolNode = nodes.find(n => n.id === selectedShotItem?.poolNodeId)
   const shots: ShotItem[] = Array.isArray((poolNode?.data as any)?.shots) ? (poolNode?.data as any).shots : []
@@ -414,12 +501,26 @@ export default function ShotItemModal() {
   // FakePanel ref to trigger insertChip from panel click
   const insertTrigger = useRef<((a: { id: string; type?: string; name: string }) => void) | null>(null)
 
-  // ESC 关闭
+  // ESC 关闭 + ↑↓ 切换分镜
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') closeShotItemModal() }
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeShotItemModal()
+      if (!selectedShotItem) return
+      // 不在输入框内时才响应方向键
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.contentEditable === 'true') return
+      if (e.key === 'ArrowUp' && selectedShotItem.shotIndex > 0) {
+        e.preventDefault()
+        openShotItemModal(selectedShotItem.poolNodeId, selectedShotItem.shotIndex - 1)
+      }
+      if (e.key === 'ArrowDown' && selectedShotItem.shotIndex < shots.length - 1) {
+        e.preventDefault()
+        openShotItemModal(selectedShotItem.poolNodeId, selectedShotItem.shotIndex + 1)
+      }
+    }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [closeShotItemModal])
+  }, [closeShotItemModal, openShotItemModal, selectedShotItem, shots.length])
 
   // Sync on open
   useEffect(() => {
@@ -584,7 +685,7 @@ export default function ShotItemModal() {
     }}>
       <div style={{
         display: 'flex', alignItems: 'stretch',
-        width: 'min(calc(100vw - 48px), 1400px)', maxHeight: '82vh',
+        width: 'min(calc(100vw - 48px), 1580px)', maxHeight: '82vh',
       }}>
 
         {/* ── Left asset panel ── */}
@@ -735,6 +836,17 @@ export default function ShotItemModal() {
               label="下载原图" />
           </div>
         </div>
+
+        {/* ── Right shot navigation panel ── */}
+        <ShotNavPanel
+          shots={shots}
+          currentIndex={selectedShotItem.shotIndex}
+          onSelect={(i) => {
+            // 先重置 initialized 让表单能重新加载新分镜数据
+            initialized.current = ''
+            openShotItemModal(selectedShotItem.poolNodeId, i)
+          }}
+        />
       </div>
     </div>
   )
