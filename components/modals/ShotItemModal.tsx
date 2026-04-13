@@ -578,8 +578,25 @@ export default function ShotItemModal() {
     ].forEach(r => refsMap.set(r.nodeId, r))
 
     const parts = [actionText.current, emotionText.current, cameraText.current].filter(Boolean)
-    const fallbackBase = parts.join(' ').replace(/@/g, '') // 去除界面 @ 标记
-    const promptBase = shot?.prompt || fallbackBase
+    const fallbackBase = parts.join(' ').replace(/@/g, '')
+    let promptBase = shot?.prompt || fallbackBase
+
+    // 将情绪氛围融合进 Live Prompt（如果 AI 生成的 prompt 没有包含 emotion 内容）
+    if (shot?.prompt && emotionText.current) {
+      const emotionClean = emotionText.current.replace(/@/g, '').trim()
+      // 检查 prompt 里是否已包含 emotion 的关键内容（取前 10 个字作为指纹）
+      const fingerprint = emotionClean.slice(0, 10)
+      if (fingerprint && !promptBase.includes(fingerprint)) {
+        // 在摄影机后缀之前插入情绪氛围
+        const suffixMarker = '使用阿莱'
+        const suffixIdx = promptBase.indexOf(suffixMarker)
+        if (suffixIdx > 0) {
+          promptBase = promptBase.slice(0, suffixIdx) + emotionClean + '。' + promptBase.slice(suffixIdx)
+        } else {
+          promptBase = promptBase + '，' + emotionClean
+        }
+      }
+    }
 
     if (promptBase.trim()) {
       const finalPrompt = sanitizePromptText(promptBase.trim())
